@@ -1,0 +1,8 @@
+.DS_Store
+*.swp
+.vscode/
+node_modules/
+
+# personal exports — never commit your own logged hours
+time-tracker-backup-*.json
+time-tracker-*.csv

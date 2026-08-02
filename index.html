@@ -1,0 +1,1097 @@
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Time Tracker — where the hours actually go</title>
+<script>
+  // anti-flash: apply stored theme before first paint
+  try {
+    var t = localStorage.getItem('timeTracker.theme');
+    if (!t) t = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    document.documentElement.setAttribute('data-theme', t);
+  } catch (e) {}
+</script>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --plane: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --border: rgba(11, 11, 11, 0.10);
+    --good: #0ca30c;
+    --critical: #d03b3b;
+    --warning: #fab219;
+    --shadow: 0 1px 2px rgba(11, 11, 11, .05), 0 8px 24px rgba(11, 11, 11, .04);
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19;
+    --plane: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --muted: #898781;
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --border: rgba(255, 255, 255, 0.10);
+    --good: #0ca30c;
+    --critical: #d03b3b;
+    --warning: #fab219;
+    --shadow: 0 1px 2px rgba(0, 0, 0, .4), 0 8px 24px rgba(0, 0, 0, .25);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--plane);
+    color: var(--text-primary);
+    font: 15px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+    -webkit-font-smoothing: antialiased;
+    padding-bottom: 64px;
+  }
+  h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -0.01em; }
+  h1 { font-size: 19px; }
+  h2 { font-size: 15px; }
+  h3 { font-size: 13px; color: var(--text-secondary); font-weight: 600; }
+  button { font: inherit; color: inherit; cursor: pointer; }
+
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+
+  /* ---------- top bar ---------- */
+  header {
+    position: sticky; top: 0; z-index: 40;
+    background: color-mix(in srgb, var(--plane) 88%, transparent);
+    backdrop-filter: saturate(1.4) blur(12px);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar { display: flex; align-items: center; gap: 12px; height: 56px; }
+  .brand { display: flex; align-items: baseline; gap: 8px; margin-right: auto; }
+  .brand small { color: var(--muted); font-size: 12px; }
+  .tabs { display: flex; gap: 2px; background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 3px; }
+  .tabs button {
+    border: 0; background: transparent; border-radius: 7px;
+    padding: 6px 12px; font-size: 13px; font-weight: 550; color: var(--text-secondary);
+  }
+  .tabs button[aria-selected="true"] { background: var(--plane); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .icon-btn {
+    border: 1px solid var(--border); background: var(--surface-1);
+    border-radius: 9px; width: 34px; height: 34px; display: grid; place-items: center; font-size: 15px;
+  }
+  .icon-btn:hover { border-color: var(--baseline); }
+
+  /* ---------- cards ---------- */
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 14px; padding: 16px; box-shadow: var(--shadow);
+  }
+  .card + .card { margin-top: 14px; }
+  .card-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; flex-wrap: wrap; }
+  .card-head .sub { color: var(--muted); font-size: 12.5px; margin-left: auto; }
+  section[hidden] { display: none !important; }
+  .row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .grow { flex: 1; }
+
+  /* ---------- palette ---------- */
+  .palette { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 7px;
+    border: 1px solid var(--border); background: var(--plane);
+    border-radius: 999px; padding: 6px 12px 6px 8px; font-size: 13px; font-weight: 550;
+    transition: border-color .1s, box-shadow .1s;
+  }
+  .chip .dot { width: 11px; height: 11px; border-radius: 3px; flex: none; }
+  .chip .key { font-size: 10.5px; color: var(--muted); font-variant-numeric: tabular-nums; margin-left: 2px; }
+  .chip[aria-pressed="true"] { border-color: var(--text-primary); box-shadow: inset 0 0 0 1px var(--text-primary); }
+  .chip.erase .dot { background: repeating-linear-gradient(45deg, var(--baseline) 0 2px, transparent 2px 4px); border: 1px solid var(--baseline); }
+
+  /* ---------- day grid ---------- */
+  .daygrid { display: flex; flex-direction: column; gap: 2px; touch-action: pan-y; user-select: none; }
+  .hourrow { display: grid; grid-template-columns: 46px 1fr 1fr; gap: 2px; align-items: stretch; }
+  .hourlab { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; }
+  .cell {
+    height: 22px; border-radius: 3px; border: 0; padding: 0;
+    background: var(--plane); box-shadow: inset 0 0 0 1px var(--grid);
+    position: relative; overflow: hidden; text-align: left;
+  }
+  .cell[data-filled="1"] { box-shadow: none; }
+  .cell .lab {
+    display: block; font-size: 10.5px; font-weight: 600; padding: 0 6px; line-height: 22px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+  }
+  .cell:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 1px; }
+  .hourrow.now .hourlab { color: var(--text-primary); font-weight: 700; }
+  .hourrow.now .hourlab::after { content: "◀"; font-size: 8px; margin-left: 3px; }
+  .cell.future { opacity: .45; }
+
+  /* ---------- week heatmap ---------- */
+  .weekgrid { display: grid; grid-template-columns: 40px repeat(7, 1fr); gap: 2px; }
+  .weekgrid .hd { font-size: 11px; color: var(--muted); text-align: center; padding-bottom: 4px; }
+  .weekgrid .hd b { display: block; color: var(--text-primary); font-size: 12px; font-weight: 600; }
+  .weekgrid .hr { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; }
+  .wcell { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; height: 15px; }
+  .wcell i { display: block; border-radius: 2px; background: var(--plane); box-shadow: inset 0 0 0 1px var(--grid); }
+  .wcell i[data-filled="1"] { box-shadow: none; }
+  .weekgrid .today .hd b, .weekgrid .todaylab { color: var(--text-primary); }
+
+  /* ---------- stat tiles ---------- */
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(148px, 1fr)); gap: 10px; }
+  .tile { background: var(--plane); border: 1px solid var(--border); border-radius: 11px; padding: 12px 13px; }
+  .tile .k { font-size: 11.5px; color: var(--muted); font-weight: 550; }
+  .tile .v { font-size: 26px; font-weight: 660; letter-spacing: -0.02em; margin-top: 3px; }
+  .tile .v small { font-size: 13px; font-weight: 550; color: var(--text-secondary); letter-spacing: 0; }
+  .tile .d { font-size: 11.5px; color: var(--text-secondary); margin-top: 2px; }
+  .tile .d.up { color: var(--good); } .tile .d.down { color: var(--critical); }
+
+  /* ---------- target bars ---------- */
+  .tbar { display: grid; grid-template-columns: 132px 1fr 74px; gap: 10px; align-items: center; padding: 14px 0 5px; }
+  .tbar .nm { font-size: 12.5px; display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .tbar .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tbar .nm i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .track { position: relative; height: 13px; background: var(--plane); border-radius: 4px; box-shadow: inset 0 0 0 1px var(--grid); }
+  .track .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 4px; min-width: 2px; }
+  .track .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--text-primary); border-radius: 1px; }
+  .track .tick::after { content: attr(data-l); position: absolute; top: -14px; left: 50%; transform: translateX(-50%); font-size: 9.5px; color: var(--muted); white-space: nowrap; }
+  .tbar .val { font-size: 12.5px; font-variant-numeric: tabular-nums; text-align: right; color: var(--text-secondary); }
+  .tbar .val b { color: var(--text-primary); font-weight: 620; }
+
+  /* ---------- hour bars ---------- */
+  .hbars { display: flex; align-items: flex-end; gap: 2px; height: 108px; margin-top: 20px; }
+  .hbars .hb { flex: 1; display: flex; flex-direction: column; justify-content: flex-end; gap: 2px; position: relative; height: 100%; }
+  .hbars .hb u { display: block; border-radius: 3px 3px 0 0; text-decoration: none; }
+  .hbars .hb u + u { border-radius: 0; }
+  .hbars .hb::after { content: attr(data-h); position: absolute; bottom: -17px; left: 0; right: 0; text-align: center; font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .hbars-wrap { padding-bottom: 20px; }
+
+  /* ---------- table ---------- */
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  th { text-align: left; font-size: 11px; color: var(--muted); font-weight: 600; padding: 6px 8px; border-bottom: 1px solid var(--grid); }
+  th.n, td.n { text-align: right; font-variant-numeric: tabular-nums; }
+  td { padding: 7px 8px; border-bottom: 1px solid var(--grid); }
+  tr:last-child td { border-bottom: 0; }
+  td .sw { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 7px; vertical-align: -1px; }
+
+  /* ---------- misc controls ---------- */
+  .btn {
+    border: 1px solid var(--border); background: var(--plane); border-radius: 9px;
+    padding: 7px 13px; font-size: 13px; font-weight: 550;
+  }
+  .btn:hover { border-color: var(--baseline); }
+  .btn.primary { background: var(--text-primary); color: var(--surface-1); border-color: var(--text-primary); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; }
+  .btn:disabled { opacity: .4; cursor: default; }
+  input[type="text"], input[type="number"], input[type="date"], select {
+    font: inherit; font-size: 13px; color: inherit; background: var(--plane);
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 9px;
+  }
+  input[type="number"] { width: 68px; font-variant-numeric: tabular-nums; }
+  .banner {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+    background: var(--plane); border: 1px solid var(--border); border-left: 3px solid var(--warning);
+    border-radius: 10px; padding: 10px 13px; font-size: 13px; margin-bottom: 14px;
+  }
+  .note { font-size: 12px; color: var(--muted); line-height: 1.55; }
+  .kind { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 5px; background: var(--plane); border: 1px solid var(--border); color: var(--text-secondary); }
+  .catrow { display: grid; grid-template-columns: 24px 1fr 96px 84px 30px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); }
+  .catrow:last-of-type { border-bottom: 0; }
+  .catrow input[type="text"] { width: 100%; }
+  #tip {
+    position: fixed; z-index: 90; pointer-events: none; opacity: 0;
+    background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 9px; font-size: 12px; box-shadow: var(--shadow);
+    transition: opacity .08s; white-space: nowrap; font-variant-numeric: tabular-nums;
+  }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; margin-top: 12px; font-size: 12px; color: var(--text-secondary); }
+  .legend span { display: inline-flex; align-items: center; gap: 6px; }
+  .legend i { width: 9px; height: 9px; border-radius: 2px; }
+  @media (max-width: 640px) {
+    .tabs button { padding: 6px 9px; font-size: 12px; }
+    .brand small { display: none; }
+    .tbar { grid-template-columns: 100px 1fr 64px; }
+    .hourrow { grid-template-columns: 38px 1fr 1fr; }
+  }
+</style>
+
+<header>
+  <div class="wrap topbar">
+    <div class="brand"><h1>⏱ Time Tracker</h1><small>paint your day in 30-minute blocks</small></div>
+    <div class="tabs" role="tablist">
+      <button role="tab" data-view="day" aria-selected="true">Day</button>
+      <button role="tab" data-view="week" aria-selected="false">Week</button>
+      <button role="tab" data-view="insights" aria-selected="false">Insights</button>
+      <button role="tab" data-view="setup" aria-selected="false">Setup</button>
+    </div>
+    <button class="icon-btn" id="themeBtn" title="Toggle dark mode">🌙</button>
+  </div>
+</header>
+
+<main class="wrap" style="padding-top:16px">
+
+  <!-- ============ DAY ============ -->
+  <section id="v-day">
+    <div id="dayBanner"></div>
+
+    <div class="card">
+      <div class="card-head">
+        <button class="icon-btn" id="prevDay" title="Previous day">‹</button>
+        <h2 id="dayTitle">Today</h2>
+        <button class="icon-btn" id="nextDay" title="Next day">›</button>
+        <button class="btn sm" id="todayBtn">Today</button>
+        <div class="sub" id="daySummary"></div>
+      </div>
+
+      <div class="palette" id="palette"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn sm" id="fillNow">⏩ Fill gap → now</button>
+        <button class="btn sm" id="repeatYday">📋 Copy yesterday</button>
+        <button class="btn sm" id="undoBtn" disabled>↶ Undo</button>
+        <button class="btn sm" id="clearDay">Clear day</button>
+        <span class="note grow" style="text-align:right">Click or drag to paint · keys <b>1–8</b> pick, <b>0</b> erases</span>
+      </div>
+
+      <div style="height:1px;background:var(--grid);margin:14px 0"></div>
+      <div class="daygrid" id="dayGrid"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Today vs target</h2><div class="sub">bar = logged · line = target</div></div>
+      <div id="dayTargets"></div>
+    </div>
+  </section>
+
+  <!-- ============ WEEK ============ -->
+  <section id="v-week" hidden>
+    <div class="card">
+      <div class="card-head">
+        <button class="icon-btn" id="prevWeek" title="Previous week">‹</button>
+        <h2 id="weekTitle">This week</h2>
+        <button class="icon-btn" id="nextWeek" title="Next week">›</button>
+        <button class="btn sm" id="thisWeekBtn">This week</button>
+        <div class="sub" id="weekSummary"></div>
+      </div>
+      <div class="weekgrid" id="weekGrid"></div>
+      <div class="legend" id="weekLegend"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Week vs target</h2><div class="sub">target scaled to days logged so far</div></div>
+      <div id="weekTargets"></div>
+    </div>
+  </section>
+
+  <!-- ============ INSIGHTS ============ -->
+  <section id="v-insights" hidden>
+    <div class="card">
+      <div class="card-head"><h2>Last 7 days</h2><div class="sub" id="insRange"></div></div>
+      <div class="tiles" id="insTiles"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Where the time leaks</h2><div class="sub">leak minutes by hour of day, last 7 days</div></div>
+      <div class="hbars-wrap"><div class="hbars" id="leakHours"></div></div>
+      <div class="legend" id="leakLegend"></div>
+      <p class="note" id="leakVerdict" style="margin:14px 0 0"></p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Target gap</h2><div class="sub" id="insTargetsSub"></div></div>
+      <div id="insTargets"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Table view</h2><div class="sub">every number above, in text</div></div>
+      <table id="insTable"></table>
+    </div>
+  </section>
+
+  <!-- ============ SETUP ============ -->
+  <section id="v-setup" hidden>
+    <div class="card">
+      <div class="card-head"><h2>Categories &amp; targets</h2><div class="sub">daily hours — a floor for most, a cap for leaks</div></div>
+      <div class="catrow" style="border-bottom:1px solid var(--grid);padding-bottom:8px">
+        <div></div>
+        <h3>Name</h3><h3>Kind</h3><h3 style="text-align:right">Target h/day</h3><div></div>
+      </div>
+      <div id="catList"></div>
+      <div class="row" style="margin-top:12px">
+        <button class="btn sm" id="addCat">+ Add category</button>
+        <span class="note" id="capNote"></span>
+      </div>
+      <p class="note" style="margin-top:14px">
+        <b>Kinds</b> — <b>invest</b> counts toward time well spent · <b>rest</b> is necessary and not scored ·
+        <b>upkeep</b> is neutral maintenance · <b>leak</b> is what you want to shrink; its target is a ceiling, not a goal.
+      </p>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Your data</h2><div class="sub" id="dataSize"></div></div>
+      <p class="note" style="margin:0 0 12px">Everything lives in this browser's localStorage — nothing leaves your machine. Export monthly so a cleared cache can't take it.</p>
+      <div class="row">
+        <button class="btn" id="expJson">⬇ Backup (JSON)</button>
+        <button class="btn" id="expCsv">⬇ Export (CSV)</button>
+        <button class="btn" id="impBtn">⬆ Restore backup</button>
+        <input type="file" id="impFile" accept=".json" hidden>
+        <span class="grow"></span>
+        <button class="btn" id="wipe">Delete everything</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>How to actually keep this up</h2></div>
+      <p class="note" style="margin:0">
+        <b>Three check-ins a day, not continuous logging.</b> Lunch, dinner, and bed. Each takes ~20 seconds:
+        open the day, pick a category, drag over the blocks you just lived. Recall over a 4–6 hour window is
+        reliable; recall over a whole day is not — that's the entire reason for check-ins rather than an
+        end-of-night entry.<br><br>
+        <b>Log the leak honestly or don't log it at all.</b> The one number that changes behaviour is the
+        one you're tempted to round down. A day that reads "3.5h drift" is a useful day.<br><br>
+        <b>Judge on the week, never the day.</b> Single days are noise — a bad Tuesday means nothing. Look at
+        Insights on Sunday, change one target, and leave the rest alone.
+      </p>
+    </div>
+  </section>
+</main>
+
+<div id="tip"></div>
+
+<script>
+(function () {
+  'use strict';
+
+  /* ══════════════ palette (validated categorical order — do not re-order) ══════════════ */
+  var SLOTS = [
+    ['#2a78d6', '#3987e5'], // 1 blue
+    ['#eb6834', '#d95926'], // 2 orange
+    ['#1baf7a', '#199e70'], // 3 aqua
+    ['#eda100', '#c98500'], // 4 yellow
+    ['#e87ba4', '#d55181'], // 5 magenta
+    ['#008300', '#008300'], // 6 green
+    ['#4a3aa7', '#9085e9'], // 7 violet
+    ['#e34948', '#e66767']  // 8 red
+  ];
+  var MAXCATS = SLOTS.length;
+
+  var DEFAULT_CATS = [
+    { id: 'sleep',  name: 'Sleep',          emoji: '😴', slot: 0, kind: 'rest',   target: 8    },
+    { id: 'deep',   name: 'Deep work',      emoji: '🎯', slot: 1, kind: 'invest', target: 4    },
+    { id: 'korean', name: 'Korean study',   emoji: '🇰🇷', slot: 2, kind: 'invest', target: 1    },
+    { id: 'admin',  name: 'Admin & chores', emoji: '🧾', slot: 3, kind: 'upkeep', target: 1    },
+    { id: 'health', name: 'Health & food',  emoji: '🏃', slot: 4, kind: 'invest', target: 1.5  },
+    { id: 'social', name: 'People',         emoji: '🫂', slot: 5, kind: 'invest', target: 1    },
+    { id: 'rest',   name: 'Leisure',        emoji: '🎬', slot: 6, kind: 'upkeep', target: 2    },
+    { id: 'drift',  name: 'Scroll & drift', emoji: '🕳', slot: 7, kind: 'leak',   target: 0.5  }
+  ];
+
+  var KINDS = ['invest', 'rest', 'upkeep', 'leak'];
+  var LS = 'timeTracker.v1', LSTHEME = 'timeTracker.theme';
+  var BLOCKS = 48, MIN = 30;
+
+  /* ══════════════ state ══════════════ */
+  var state = load();
+  var view = 'day';
+  var cursor = todayISO();      // day view date
+  var weekCursor = todayISO();  // week view anchor
+  var paintCat = state.cats[1] ? state.cats[1].id : '';
+  var undoStack = [];
+
+  function load() {
+    try {
+      var raw = JSON.parse(localStorage.getItem(LS) || 'null');
+      if (raw && raw.cats && raw.days) {
+        raw.cats.forEach(function (c) { if (typeof c.slot !== 'number') c.slot = 0; });
+        return raw;
+      }
+    } catch (e) {}
+    return { cats: JSON.parse(JSON.stringify(DEFAULT_CATS)), days: {} };
+  }
+  function save() {
+    try { localStorage.setItem(LS, JSON.stringify(state)); }
+    catch (e) { alert('Could not save — browser storage is full or blocked.'); }
+  }
+
+  /* ══════════════ date helpers ══════════════ */
+  function iso(d) {
+    return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  }
+  function todayISO() { return iso(new Date()); }
+  function parseISO(s) { var p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); }
+  function addDays(s, n) { var d = parseISO(s); d.setDate(d.getDate() + n); return iso(d); }
+  function mondayOf(s) { var d = parseISO(s); var w = (d.getDay() + 6) % 7; d.setDate(d.getDate() - w); return iso(d); }
+  function weekDays(anchor) { var m = mondayOf(anchor), a = []; for (var i = 0; i < 7; i++) a.push(addDays(m, i)); return a; }
+  function lastNDays(n, end) { var a = []; for (var i = n - 1; i >= 0; i--) a.push(addDays(end || todayISO(), -i)); return a; }
+  function fmtDate(s, long) {
+    var d = parseISO(s);
+    return d.toLocaleDateString(undefined, long
+      ? { weekday: 'long', day: 'numeric', month: 'long' }
+      : { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  function blockTime(i) { return String(Math.floor(i / 2)).padStart(2, '0') + ':' + (i % 2 ? '30' : '00'); }
+  function nowBlock() { var d = new Date(); return d.getHours() * 2 + (d.getMinutes() >= 30 ? 1 : 0); }
+  function fmtH(h) {
+    if (!h) return '0h';
+    var hh = Math.floor(h + 1e-9), mm = Math.round((h - hh) * 60);
+    if (mm === 60) { hh++; mm = 0; }
+    return hh && mm ? hh + 'h ' + mm + 'm' : hh ? hh + 'h' : mm + 'm';
+  }
+
+  /* ══════════════ data accessors ══════════════ */
+  function blocksFor(day, create) {
+    var d = state.days[day];
+    if (!d) { if (!create) return null; d = state.days[day] = { b: new Array(BLOCKS).fill(null) }; }
+    if (!d.b || d.b.length !== BLOCKS) d.b = new Array(BLOCKS).fill(null);
+    return d.b;
+  }
+  function catById(id) { for (var i = 0; i < state.cats.length; i++) if (state.cats[i].id === id) return state.cats[i]; return null; }
+  function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
+  function colorOf(cat) { var s = SLOTS[cat.slot % SLOTS.length]; return isDark() ? s[1] : s[0]; }
+  function colorFor(id) { var c = catById(id); return c ? colorOf(c) : 'transparent'; }
+
+  // minutes per category across a set of days
+  function totals(days) {
+    var t = {}, logged = 0, possible = 0;
+    state.cats.forEach(function (c) { t[c.id] = 0; });
+    days.forEach(function (day) {
+      var b = blocksFor(day, false);
+      possible += BLOCKS * MIN;
+      if (!b) return;
+      for (var i = 0; i < BLOCKS; i++) if (b[i] && t.hasOwnProperty(b[i])) { t[b[i]] += MIN; logged += MIN; }
+    });
+    return { per: t, logged: logged, possible: possible };
+  }
+  function kindTotal(per, kind) {
+    var s = 0;
+    state.cats.forEach(function (c) { if (c.kind === kind) s += per[c.id] || 0; });
+    return s;
+  }
+  function daysWithData(days) { return days.filter(function (d) { var b = blocksFor(d, false); return b && b.some(Boolean); }); }
+
+  /* ══════════════ tooltip ══════════════ */
+  var tip = document.getElementById('tip');
+  function showTip(e, html) {
+    tip.innerHTML = html;
+    tip.style.opacity = '1';
+    var r = tip.getBoundingClientRect();
+    var x = Math.min(e.clientX + 12, innerWidth - r.width - 8);
+    var y = e.clientY - r.height - 10;
+    if (y < 8) y = e.clientY + 16;
+    tip.style.left = x + 'px'; tip.style.top = y + 'px';
+  }
+  function hideTip() { tip.style.opacity = '0'; }
+
+  /* ══════════════ palette UI ══════════════ */
+  function renderPalette() {
+    var p = document.getElementById('palette');
+    p.innerHTML = '';
+    state.cats.forEach(function (c, i) {
+      var b = document.createElement('button');
+      b.className = 'chip';
+      b.setAttribute('aria-pressed', String(paintCat === c.id));
+      b.innerHTML = '<i class="dot" style="background:' + colorOf(c) + '"></i>' + c.emoji + ' ' + esc(c.name) +
+                    (i < 9 ? '<i class="key">' + (i + 1) + '</i>' : '');
+      b.onclick = function () { paintCat = c.id; renderPalette(); };
+      p.appendChild(b);
+    });
+    var e = document.createElement('button');
+    e.className = 'chip erase';
+    e.setAttribute('aria-pressed', String(paintCat === ''));
+    e.innerHTML = '<i class="dot"></i>Erase<i class="key">0</i>';
+    e.onclick = function () { paintCat = ''; renderPalette(); };
+    p.appendChild(e);
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (m) { return ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[m]; }); }
+
+  /* ══════════════ DAY VIEW ══════════════ */
+  var dayGrid = document.getElementById('dayGrid');
+
+  function renderDay() {
+    var b = blocksFor(cursor, false) || new Array(BLOCKS).fill(null);
+    var isToday = cursor === todayISO();
+    var nb = nowBlock();
+    document.getElementById('dayTitle').textContent = isToday ? 'Today · ' + fmtDate(cursor) : fmtDate(cursor, true);
+    document.getElementById('nextDay').disabled = cursor >= todayISO();
+
+    dayGrid.innerHTML = '';
+    for (var h = 0; h < 24; h++) {
+      var row = document.createElement('div');
+      row.className = 'hourrow' + (isToday && Math.floor(nb / 2) === h ? ' now' : '');
+      var lab = document.createElement('div');
+      lab.className = 'hourlab';
+      lab.textContent = String(h).padStart(2, '0') + ':00';
+      row.appendChild(lab);
+      for (var k = 0; k < 2; k++) {
+        var i = h * 2 + k;
+        var cell = document.createElement('button');
+        cell.className = 'cell' + (isToday && i > nb ? ' future' : '');
+        cell.dataset.i = i;
+        paintCell(cell, b[i], i);
+        row.appendChild(cell);
+      }
+      dayGrid.appendChild(row);
+    }
+    relabel();
+    renderDaySummary();
+    renderTargets('dayTargets', [cursor], 1);
+    renderBanner();
+    document.getElementById('undoBtn').disabled = undoStack.length === 0;
+  }
+
+  function paintCell(cell, id, i) {
+    var c = id ? catById(id) : null;
+    cell.dataset.filled = c ? '1' : '0';
+    cell.style.background = c ? colorOf(c) : '';
+    cell.title = blockTime(i) + '–' + blockTime((i + 1) % BLOCKS) + (c ? ' · ' + c.name : ' · unlogged');
+  }
+
+  // white ink on dark fills, near-black on light ones — several palette slots
+  // (yellow, magenta, aqua) are far too light to carry white text
+  function inkOn(hex) {
+    var r = parseInt(hex.slice(1, 3), 16) / 255, g = parseInt(hex.slice(3, 5), 16) / 255, b = parseInt(hex.slice(5, 7), 16) / 255;
+    function lin(x) { return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }
+    var L = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+    return L > 0.42 ? '#0b0b0b' : '#ffffff';
+  }
+
+  // label only the first block of each run — an emoji on all 48 cells is noise
+  function relabel() {
+    var b = blocksFor(cursor, false) || [];
+    var cells = dayGrid.querySelectorAll('.cell');
+    for (var i = 0; i < cells.length; i++) {
+      var id = b[i] || null;
+      if (id && id !== (b[i - 1] || null)) {
+        var c = catById(id);
+        if (c) {
+          var col = colorOf(c);
+          cells[i].innerHTML = '<span class="lab" style="color:' + inkOn(col) + '">' + c.emoji + ' ' + esc(c.name) + '</span>';
+          continue;
+        }
+      }
+      cells[i].innerHTML = '';
+    }
+  }
+
+  function renderDaySummary() {
+    var t = totals([cursor]);
+    var el = document.getElementById('daySummary');
+    var logged = t.logged / 60, un = 24 - logged;
+    el.innerHTML = '<b>' + fmtH(logged) + '</b> logged · ' + fmtH(un) + ' blank · ' +
+      fmtH(kindTotal(t.per, 'leak') / 60) + ' leak';
+  }
+
+  function renderBanner() {
+    var el = document.getElementById('dayBanner');
+    el.innerHTML = '';
+    if (cursor !== todayISO()) return;
+    var b = blocksFor(cursor, false);
+    var nb = nowBlock();
+    var gapStart = -1;
+    for (var i = nb; i >= 0; i--) {
+      if (b && b[i]) break;
+      gapStart = i;
+    }
+    if (gapStart < 0 || nb - gapStart < 3) return; // less than 1.5h — not worth nagging
+    var mins = (nb - gapStart + 1) * MIN;
+    var d = document.createElement('div');
+    d.className = 'banner';
+    d.innerHTML = '<b>' + fmtH(mins / 60) + ' unlogged</b> since ' + blockTime(gapStart) +
+      '. Pick a category, then fill it in while you still remember.';
+    var btn = document.createElement('button');
+    btn.className = 'btn sm';
+    btn.textContent = 'Fill ' + blockTime(gapStart) + ' → now';
+    btn.onclick = function () { fillGap(); };
+    d.appendChild(btn);
+    el.appendChild(d);
+  }
+
+  function fillGap() {
+    if (cursor !== todayISO()) { alert('“Fill → now” only applies to today.'); return; }
+    if (!paintCat) { alert('Pick a category first — the eraser has nothing to erase here.'); return; }
+    var b = blocksFor(cursor, true), nb = nowBlock(), start = -1;
+    for (var i = nb; i >= 0; i--) { if (b[i]) break; start = i; }
+    if (start < 0) { alert('Nothing to fill — you are already logged up to now.'); return; }
+    pushUndo();
+    for (var j = start; j <= nb; j++) b[j] = paintCat || null;
+    save(); renderDay();
+  }
+
+  /* --- painting interaction (mouse + touch via pointer events) --- */
+  var painting = false, paintValue = null;
+
+  function applyTo(cell) {
+    if (!cell || !cell.classList.contains('cell')) return;
+    var i = +cell.dataset.i;
+    var b = blocksFor(cursor, true);
+    if (b[i] === paintValue) return;
+    b[i] = paintValue;
+    paintCell(cell, b[i], i);
+  }
+  function cellAt(x, y) {
+    var el = document.elementFromPoint(x, y);
+    return el && el.closest ? el.closest('.cell') : null;
+  }
+  function pushUndo() {
+    var b = blocksFor(cursor, true);
+    undoStack.push({ day: cursor, b: b.slice() });
+    if (undoStack.length > 40) undoStack.shift();
+    document.getElementById('undoBtn').disabled = false;
+  }
+
+  dayGrid.addEventListener('pointerdown', function (e) {
+    var cell = e.target.closest('.cell');
+    if (!cell) return;
+    e.preventDefault();
+    pushUndo();
+    painting = true;
+    paintValue = paintCat || null;
+    // clicking a block that already holds the selected category erases it instead
+    var b = blocksFor(cursor, true);
+    if (paintValue && b[+cell.dataset.i] === paintValue) paintValue = null;
+    applyTo(cell);
+    dayGrid.setPointerCapture(e.pointerId);
+  });
+  dayGrid.addEventListener('pointermove', function (e) {
+    if (painting) { applyTo(cellAt(e.clientX, e.clientY)); return; }
+    var cell = e.target.closest ? e.target.closest('.cell') : null;
+    if (!cell) { hideTip(); return; }
+    var i = +cell.dataset.i, bb = blocksFor(cursor, false);
+    var c = bb && bb[i] ? catById(bb[i]) : null;
+    showTip(e, '<b>' + blockTime(i) + '–' + blockTime(i + 1 === BLOCKS ? 0 : i + 1) + '</b> · ' +
+      (c ? c.emoji + ' ' + esc(c.name) : '<span style="color:var(--muted)">unlogged</span>'));
+  });
+  dayGrid.addEventListener('pointerleave', hideTip);
+  function endPaint() {
+    if (!painting) return;
+    painting = false; save();
+    relabel(); renderDaySummary(); renderTargets('dayTargets', [cursor], 1); renderBanner();
+  }
+  dayGrid.addEventListener('pointerup', endPaint);
+  dayGrid.addEventListener('pointercancel', endPaint);
+  window.addEventListener('pointerup', endPaint);
+
+  /* --- day controls --- */
+  document.getElementById('prevDay').onclick = function () { cursor = addDays(cursor, -1); undoStack = []; renderDay(); };
+  document.getElementById('nextDay').onclick = function () { if (cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; renderDay(); } };
+  document.getElementById('todayBtn').onclick = function () { cursor = todayISO(); undoStack = []; renderDay(); };
+  document.getElementById('fillNow').onclick = fillGap;
+  document.getElementById('undoBtn').onclick = function () {
+    var u = undoStack.pop();
+    if (!u) return;
+    state.days[u.day] = state.days[u.day] || {};
+    state.days[u.day].b = u.b;
+    if (u.day !== cursor) cursor = u.day;
+    save(); renderDay();
+  };
+  document.getElementById('clearDay').onclick = function () {
+    if (!confirm('Clear every block on ' + fmtDate(cursor) + '?')) return;
+    pushUndo();
+    state.days[cursor] = { b: new Array(BLOCKS).fill(null) };
+    save(); renderDay();
+  };
+  document.getElementById('repeatYday').onclick = function () {
+    var y = blocksFor(addDays(cursor, -1), false);
+    if (!y || !y.some(Boolean)) { alert('Nothing logged on ' + fmtDate(addDays(cursor, -1)) + '.'); return; }
+    if (!confirm('Copy ' + fmtDate(addDays(cursor, -1)) + ' over ' + fmtDate(cursor) + '? This overwrites the day.')) return;
+    pushUndo();
+    state.days[cursor] = { b: y.slice() };
+    save(); renderDay();
+  };
+
+  document.addEventListener('keydown', function (e) {
+    if (view !== 'day') return;
+    if (e.target.matches('input,select,textarea')) return;
+    if (e.key >= '1' && e.key <= '8') {
+      var c = state.cats[+e.key - 1];
+      if (c) { paintCat = c.id; renderPalette(); }
+    } else if (e.key === '0') { paintCat = ''; renderPalette(); }
+    else if (e.key === 'ArrowLeft') { cursor = addDays(cursor, -1); undoStack = []; renderDay(); }
+    else if (e.key === 'ArrowRight' && cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; renderDay(); }
+    else if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); document.getElementById('undoBtn').click(); }
+  });
+
+  /* ══════════════ TARGET BARS ══════════════ */
+  // scale = number of days the target applies over
+  function renderTargets(elId, days, scale) {
+    var el = document.getElementById(elId);
+    var t = totals(days);
+    var rows = state.cats.slice().sort(function (a, b) { return (t.per[b.id] || 0) - (t.per[a.id] || 0); });
+    var max = 1;
+    rows.forEach(function (c) { max = Math.max(max, (t.per[c.id] || 0) / 60, c.target * scale); });
+    max *= 1.12;
+
+    var html = '';
+    rows.forEach(function (c) {
+      var h = (t.per[c.id] || 0) / 60, tgt = c.target * scale;
+      var col = colorOf(c);
+      var pctFill = Math.min(100, h / max * 100), pctTick = Math.min(100, tgt / max * 100);
+      var delta = h - tgt, good;
+      if (c.kind === 'leak') good = delta <= 0;
+      else if (c.kind === 'rest') good = Math.abs(delta) <= tgt * 0.15;
+      else good = delta >= 0;
+      var dtxt = tgt <= 0 ? (h > 0 ? '+' + fmtH(h) : 'none') :
+        (delta >= 0 ? '+' : '−') + fmtH(Math.abs(delta));
+      html += '<div class="tbar">' +
+        '<div class="nm"><i style="background:' + col + '"></i><span>' + c.emoji + ' ' + esc(c.name) + '</span></div>' +
+        '<div class="track"><div class="fill" style="width:' + pctFill + '%;background:' + col + '"></div>' +
+          (tgt > 0 ? '<div class="tick" data-l="' + fmtH(tgt) + '" style="left:' + pctTick + '%"></div>' : '') +
+        '</div>' +
+        '<div class="val"><b>' + fmtH(h) + '</b><br><span style="color:' + (good ? 'var(--good)' : 'var(--critical)') + '">' + dtxt + '</span></div>' +
+      '</div>';
+    });
+    var un = (t.possible - t.logged) / 60;
+    html += '<p class="note" style="margin:10px 0 0">' + fmtH(un) + ' of ' + fmtH(t.possible / 60) +
+      ' unlogged. Blank blocks are not zero — they are unknown, and they quietly flatter every number above.</p>';
+    el.innerHTML = html;
+  }
+
+  /* ══════════════ WEEK VIEW ══════════════ */
+  function renderWeek() {
+    var days = weekDays(weekCursor);
+    var g = document.getElementById('weekGrid');
+    var today = todayISO();
+    document.getElementById('weekTitle').textContent =
+      mondayOf(weekCursor) === mondayOf(today) ? 'This week' : fmtDate(days[0]) + ' – ' + fmtDate(days[6]);
+    document.getElementById('nextWeek').disabled = mondayOf(weekCursor) >= mondayOf(today);
+
+    var html = '<div></div>';
+    days.forEach(function (d) {
+      var dd = parseISO(d);
+      html += '<div class="hd' + (d === today ? ' todaylab' : '') + '"><b>' +
+        dd.toLocaleDateString(undefined, { weekday: 'short' }) + '</b>' + dd.getDate() + '</div>';
+    });
+    for (var h = 0; h < 24; h++) {
+      html += '<div class="hr">' + (h % 3 === 0 ? String(h).padStart(2, '0') : '') + '</div>';
+      for (var k = 0; k < 7; k++) {
+        var b = blocksFor(days[k], false);
+        html += '<div class="wcell">';
+        for (var s = 0; s < 2; s++) {
+          var id = b ? b[h * 2 + s] : null;
+          html += '<i data-filled="' + (id ? 1 : 0) + '" data-d="' + days[k] + '" data-i="' + (h * 2 + s) + '"' +
+            (id ? ' style="background:' + colorFor(id) + '"' : '') + '></i>';
+        }
+        html += '</div>';
+      }
+    }
+    g.innerHTML = html;
+
+    var t = totals(days), n = daysWithData(days).length;
+    document.getElementById('weekSummary').innerHTML =
+      '<b>' + n + '/7</b> days logged · ' + fmtH(t.logged / 60) + ' accounted for · ' +
+      fmtH(kindTotal(t.per, 'leak') / 60) + ' leak';
+
+    document.getElementById('weekLegend').innerHTML = state.cats.map(function (c) {
+      return '<span><i style="background:' + colorOf(c) + '"></i>' + c.emoji + ' ' + esc(c.name) + '</span>';
+    }).join('') + '<span><i style="background:var(--plane);box-shadow:inset 0 0 0 1px var(--grid)"></i>unlogged</span>';
+
+    renderTargets('weekTargets', days, Math.max(1, n));
+  }
+
+  document.getElementById('weekGrid').addEventListener('pointermove', function (e) {
+    var c = e.target.closest ? e.target.closest('[data-d]') : null;
+    if (!c) { hideTip(); return; }
+    var b = blocksFor(c.dataset.d, false), i = +c.dataset.i;
+    var cat = b && b[i] ? catById(b[i]) : null;
+    showTip(e, '<b>' + fmtDate(c.dataset.d) + ' ' + blockTime(i) + '</b> · ' +
+      (cat ? cat.emoji + ' ' + esc(cat.name) : '<span style="color:var(--muted)">unlogged</span>'));
+  });
+  document.getElementById('weekGrid').addEventListener('pointerleave', hideTip);
+  document.getElementById('weekGrid').addEventListener('click', function (e) {
+    var c = e.target.closest ? e.target.closest('[data-d]') : null;
+    if (!c) return;
+    cursor = c.dataset.d; undoStack = []; setView('day');
+  });
+  document.getElementById('prevWeek').onclick = function () { weekCursor = addDays(weekCursor, -7); renderWeek(); };
+  document.getElementById('nextWeek').onclick = function () { if (mondayOf(weekCursor) < mondayOf(todayISO())) { weekCursor = addDays(weekCursor, 7); renderWeek(); } };
+  document.getElementById('thisWeekBtn').onclick = function () { weekCursor = todayISO(); renderWeek(); };
+
+  /* ══════════════ INSIGHTS ══════════════ */
+  function renderInsights() {
+    var days = lastNDays(7);
+    var withData = daysWithData(days);
+    var n = Math.max(1, withData.length);
+    var t = totals(days);
+
+    document.getElementById('insRange').textContent = fmtDate(days[0]) + ' – ' + fmtDate(days[6]) +
+      ' · ' + withData.length + ' day' + (withData.length === 1 ? '' : 's') + ' with data';
+
+    var leakMin = kindTotal(t.per, 'leak'), investMin = kindTotal(t.per, 'invest');
+    var coverage = withData.length ? t.logged / (withData.length * 24 * 60) : 0;
+
+    // longest unbroken invest run, in blocks, across the window
+    var bestRun = 0, bestDay = '';
+    withData.forEach(function (d) {
+      var b = blocksFor(d, false), run = 0;
+      for (var i = 0; i < BLOCKS; i++) {
+        var c = b[i] ? catById(b[i]) : null;
+        if (c && c.kind === 'invest') { run++; if (run > bestRun) { bestRun = run; bestDay = d; } }
+        else run = 0;
+      }
+    });
+    // switches per logged day (fragmentation)
+    var switches = 0;
+    withData.forEach(function (d) {
+      var b = blocksFor(d, false), prev = null;
+      for (var i = 0; i < BLOCKS; i++) { if (b[i] && b[i] !== prev) switches++; if (b[i]) prev = b[i]; }
+    });
+
+    document.getElementById('insTiles').innerHTML = [
+      tile('Leaked', fmtH(leakMin / 60), fmtH(leakMin / 60 / n) + ' a day', leakMin / 60 / n <= leakTargetPerDay() ? 'up' : 'down'),
+      tile('Time invested', fmtH(investMin / 60), fmtH(investMin / 60 / n) + ' a day', ''),
+      tile('Longest focus run', fmtH(bestRun * MIN / 60), bestDay ? 'on ' + fmtDate(bestDay) : 'no invest blocks yet', ''),
+      tile('Switches / day', String(Math.round(switches / n)), 'category changes', ''),
+      tile('Coverage', Math.round(coverage * 100) + '%', 'of logged days accounted for', coverage >= 0.9 ? 'up' : '')
+    ].join('');
+
+    renderLeakHours(days);
+    // targets scale to the number of days actually logged, so a half-logged week
+    // isn't reported as a failure against seven days of targets
+    var scope = withData.length ? withData : days;
+    document.getElementById('insTargetsSub').textContent =
+      'totals over ' + scope.length + ' logged day' + (scope.length === 1 ? '' : 's') + ' vs target × ' + scope.length;
+    renderTargets('insTargets', scope, scope.length);
+    renderInsTable(days, n);
+  }
+  function leakTargetPerDay() {
+    var s = 0; state.cats.forEach(function (c) { if (c.kind === 'leak') s += c.target; }); return s;
+  }
+  function tile(k, v, d, cls) {
+    return '<div class="tile"><div class="k">' + k + '</div><div class="v">' + v + '</div>' +
+      '<div class="d ' + cls + '">' + d + '</div></div>';
+  }
+
+  function renderLeakHours(days) {
+    var leaks = state.cats.filter(function (c) { return c.kind === 'leak'; });
+    var byHour = [];
+    for (var h = 0; h < 24; h++) { var o = {}; leaks.forEach(function (c) { o[c.id] = 0; }); byHour.push(o); }
+    days.forEach(function (d) {
+      var b = blocksFor(d, false);
+      if (!b) return;
+      for (var i = 0; i < BLOCKS; i++) {
+        if (b[i] && byHour[Math.floor(i / 2)].hasOwnProperty(b[i])) byHour[Math.floor(i / 2)][b[i]] += MIN;
+      }
+    });
+    var maxH = 1;
+    byHour.forEach(function (o) { var s = 0; for (var k in o) s += o[k]; maxH = Math.max(maxH, s); });
+
+    var html = '';
+    for (var h = 0; h < 24; h++) {
+      var segs = '', tot = 0;
+      leaks.forEach(function (c) {
+        var m = byHour[h][c.id];
+        tot += m;
+        if (m > 0) segs = '<u style="height:' + (m / maxH * 100) + '%;background:' + colorOf(c) + '"></u>' + segs;
+      });
+      html += '<div class="hb" data-h="' + (h % 3 === 0 ? String(h).padStart(2, '0') : '') + '" ' +
+        'data-tip="' + String(h).padStart(2, '0') + ':00 · ' + fmtH(tot / 60) + '">' + segs + '</div>';
+    }
+    document.getElementById('leakHours').innerHTML = html;
+
+    document.getElementById('leakLegend').innerHTML = leaks.length > 1
+      ? leaks.map(function (c) { return '<span><i style="background:' + colorOf(c) + '"></i>' + c.emoji + ' ' + esc(c.name) + '</span>'; }).join('')
+      : '';
+
+    // verdict
+    var tots = byHour.map(function (o, h) { var s = 0; for (var k in o) s += o[k]; return { h: h, m: s }; });
+    var top = tots.slice().sort(function (a, b) { return b.m - a.m; }).filter(function (x) { return x.m > 0; }).slice(0, 3);
+    var v = document.getElementById('leakVerdict');
+    if (!top.length) {
+      v.innerHTML = leaks.length
+        ? 'No leak blocks logged in the last 7 days. Either the week was genuinely clean, or the leak is going in unlogged — check the coverage tile before believing this one.'
+        : 'No category is marked as a <b>leak</b>. Mark one in Setup and this chart starts working.';
+    } else {
+      var sum = top.reduce(function (a, x) { return a + x.m; }, 0);
+      var all = tots.reduce(function (a, x) { return a + x.m; }, 0);
+      v.innerHTML = '<b>' + Math.round(sum / all * 100) + '% of your leaked time sits in ' + top.length + ' hour-slots</b> — ' +
+        top.map(function (x) { return String(x.h).padStart(2, '0') + ':00 (' + fmtH(x.m / 60) + ')'; }).join(', ') +
+        '. That is where a rule is worth making; the scattered rest of the day is not worth policing.';
+    }
+  }
+  document.getElementById('leakHours').addEventListener('pointermove', function (e) {
+    var b = e.target.closest ? e.target.closest('[data-tip]') : null;
+    if (!b) { hideTip(); return; }
+    showTip(e, b.dataset.tip);
+  });
+  document.getElementById('leakHours').addEventListener('pointerleave', hideTip);
+
+  function renderInsTable(days, n) {
+    var t = totals(days);
+    var rows = state.cats.slice().sort(function (a, b) { return (t.per[b.id] || 0) - (t.per[a.id] || 0); });
+    var html = '<thead><tr><th>Category</th><th>Kind</th><th class="n">7-day total</th><th class="n">Per day</th>' +
+      '<th class="n">Target/day</th><th class="n">Gap/day</th></tr></thead><tbody>';
+    rows.forEach(function (c) {
+      var h = (t.per[c.id] || 0) / 60, per = h / n, d = per - c.target;
+      var good = c.kind === 'leak' ? d <= 0 : c.kind === 'rest' ? Math.abs(d) <= c.target * 0.15 : d >= 0;
+      html += '<tr><td><i class="sw" style="background:' + colorOf(c) + '"></i>' + c.emoji + ' ' + esc(c.name) + '</td>' +
+        '<td><span class="kind">' + c.kind + '</span></td>' +
+        '<td class="n">' + fmtH(h) + '</td><td class="n">' + fmtH(per) + '</td><td class="n">' + fmtH(c.target) + '</td>' +
+        '<td class="n" style="color:' + (good ? 'var(--good)' : 'var(--critical)') + '">' +
+        (d >= 0 ? '+' : '−') + fmtH(Math.abs(d)) + '</td></tr>';
+    });
+    var un = (t.possible - t.logged) / 60;
+    html += '<tr><td colspan="2" style="color:var(--muted)">Unlogged</td><td class="n">' + fmtH(un) +
+      '</td><td class="n">' + fmtH(un / 7) + '</td><td class="n">—</td><td class="n">—</td></tr>';
+    document.getElementById('insTable').innerHTML = html + '</tbody>';
+  }
+
+  /* ══════════════ SETUP ══════════════ */
+  function renderSetup() {
+    var el = document.getElementById('catList');
+    el.innerHTML = '';
+    state.cats.forEach(function (c, idx) {
+      var row = document.createElement('div');
+      row.className = 'catrow';
+
+      var sw = document.createElement('div');
+      sw.innerHTML = '<i style="display:block;width:16px;height:16px;border-radius:4px;background:' + colorOf(c) + '"></i>';
+
+      var nm = document.createElement('input');
+      nm.type = 'text'; nm.value = c.emoji + ' ' + c.name;
+      nm.onchange = function () {
+        var v = nm.value.trim();
+        // first token is the emoji only if it carries no letters/digits (handles 🇰🇷 and other flags,
+        // which are regional-indicator pairs and fail every emoji character-property test)
+        var parts = v.split(/\s+/);
+        if (parts.length > 1 && !/[a-z0-9]/i.test(parts[0])) {
+          c.emoji = parts[0]; c.name = parts.slice(1).join(' ');
+        } else if (v) { c.name = v; }
+        save(); renderAll();
+      };
+
+      var kd = document.createElement('select');
+      KINDS.forEach(function (k) {
+        var o = document.createElement('option'); o.value = k; o.textContent = k;
+        if (c.kind === k) o.selected = true; kd.appendChild(o);
+      });
+      kd.onchange = function () { c.kind = kd.value; save(); renderAll(); };
+
+      var tg = document.createElement('input');
+      tg.type = 'number'; tg.min = '0'; tg.max = '24'; tg.step = '0.25'; tg.value = c.target;
+      tg.style.width = '100%';
+      tg.onchange = function () { c.target = Math.max(0, Math.min(24, +tg.value || 0)); save(); renderAll(); };
+      var tgWrap = document.createElement('div'); tgWrap.appendChild(tg);
+
+      var del = document.createElement('button');
+      del.className = 'icon-btn'; del.innerHTML = '✕'; del.title = 'Delete category';
+      del.onclick = function () {
+        var used = 0;
+        for (var d in state.days) { var b = state.days[d].b || []; for (var i = 0; i < b.length; i++) if (b[i] === c.id) used++; }
+        if (!confirm('Delete “' + c.name + '”?' + (used ? '\n\n' + fmtH(used * MIN / 60) + ' of logged time uses it and will become unlogged.' : ''))) return;
+        for (var dd in state.days) { var bb = state.days[dd].b || []; for (var j = 0; j < bb.length; j++) if (bb[j] === c.id) bb[j] = null; }
+        state.cats.splice(idx, 1);
+        if (paintCat === c.id) paintCat = state.cats[0] ? state.cats[0].id : '';
+        save(); renderAll();
+      };
+
+      row.appendChild(sw); row.appendChild(nm); row.appendChild(kd); row.appendChild(tgWrap); row.appendChild(del);
+      el.appendChild(row);
+    });
+
+    document.getElementById('addCat').disabled = state.cats.length >= MAXCATS;
+    document.getElementById('capNote').textContent = state.cats.length >= MAXCATS
+      ? 'Eight is the cap — past eight, the colours stop being reliably distinguishable, so rename one instead of adding.'
+      : (MAXCATS - state.cats.length) + ' slot' + (MAXCATS - state.cats.length === 1 ? '' : 's') + ' left.';
+
+    try {
+      var bytes = new Blob([JSON.stringify(state)]).size;
+      document.getElementById('dataSize').textContent =
+        Object.keys(state.days).length + ' days · ' + (bytes / 1024).toFixed(1) + ' KB';
+    } catch (e) {}
+  }
+
+  document.getElementById('addCat').onclick = function () {
+    if (state.cats.length >= MAXCATS) return;
+    var used = state.cats.map(function (c) { return c.slot; });
+    var slot = 0; while (used.indexOf(slot) > -1 && slot < MAXCATS) slot++;
+    state.cats.push({ id: 'c' + Math.abs(Math.floor(performance.now() * 1000)).toString(36),
+      name: 'New category', emoji: '⬜', slot: slot, kind: 'upkeep', target: 1 });
+    save(); renderAll();
+  };
+
+  /* --- export / import --- */
+  function download(name, text, type) {
+    var b = new Blob([text], { type: type });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(b); a.download = name; a.click();
+    setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
+  }
+  document.getElementById('expJson').onclick = function () {
+    download('time-tracker-backup-' + todayISO() + '.json', JSON.stringify(state, null, 2), 'application/json');
+  };
+  document.getElementById('expCsv').onclick = function () {
+    var rows = [['date', 'start', 'end', 'category', 'kind', 'minutes']];
+    Object.keys(state.days).sort().forEach(function (d) {
+      var b = state.days[d].b || [], i = 0;
+      while (i < BLOCKS) {
+        if (!b[i]) { i++; continue; }
+        var j = i; while (j + 1 < BLOCKS && b[j + 1] === b[i]) j++;
+        var c = catById(b[i]);
+        rows.push([d, blockTime(i), j + 1 >= BLOCKS ? '24:00' : blockTime(j + 1),
+          c ? c.name : b[i], c ? c.kind : '', (j - i + 1) * MIN]);
+        i = j + 1;
+      }
+    });
+    download('time-tracker-' + todayISO() + '.csv',
+      rows.map(function (r) { return r.map(function (x) { return /[",]/.test(x) ? '"' + String(x).replace(/"/g, '""') + '"' : x; }).join(','); }).join('\n'),
+      'text/csv');
+  };
+  document.getElementById('impBtn').onclick = function () { document.getElementById('impFile').click(); };
+  document.getElementById('impFile').onchange = function (e) {
+    var f = e.target.files[0];
+    if (!f) return;
+    var r = new FileReader();
+    r.onload = function () {
+      try {
+        var d = JSON.parse(r.result);
+        if (!d.cats || !d.days) throw 0;
+        if (!confirm('Replace everything currently in this browser with the backup?')) return;
+        state = d; undoStack = []; save(); renderAll();
+        alert('Restored ' + Object.keys(state.days).length + ' days.');
+      } catch (err) { alert('That file is not a Time Tracker backup.'); }
+    };
+    r.readAsText(f);
+    e.target.value = '';
+  };
+  document.getElementById('wipe').onclick = function () {
+    if (!confirm('Delete all logged days and reset categories? This cannot be undone.')) return;
+    if (!confirm('Really? Export a backup first if there is any doubt.')) return;
+    localStorage.removeItem(LS);
+    state = load(); undoStack = []; renderAll();
+  };
+
+  /* ══════════════ views & theme ══════════════ */
+  function setView(v) {
+    view = v;
+    ['day', 'week', 'insights', 'setup'].forEach(function (k) {
+      document.getElementById('v-' + k).hidden = k !== v;
+    });
+    document.querySelectorAll('.tabs button').forEach(function (b) {
+      b.setAttribute('aria-selected', String(b.dataset.view === v));
+    });
+    if (v === 'day') renderDay();
+    if (v === 'week') renderWeek();
+    if (v === 'insights') renderInsights();
+    if (v === 'setup') renderSetup();
+  }
+  document.querySelectorAll('.tabs button').forEach(function (b) {
+    b.onclick = function () { setView(b.dataset.view); };
+  });
+
+  var themeBtn = document.getElementById('themeBtn');
+  function syncThemeBtn() { themeBtn.textContent = isDark() ? '☀️' : '🌙'; }
+  themeBtn.onclick = function () {
+    var next = isDark() ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', next);
+    try { localStorage.setItem(LSTHEME, next); } catch (e) {}
+    syncThemeBtn(); renderAll();
+  };
+
+  function renderAll() {
+    renderPalette();
+    syncThemeBtn();
+    if (view === 'day') renderDay();
+    else if (view === 'week') renderWeek();
+    else if (view === 'insights') renderInsights();
+    else renderSetup();
+  }
+
+  renderAll();
+})();
+</script>
