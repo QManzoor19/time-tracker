@@ -112,23 +112,29 @@
   .hourrow { display: grid; grid-template-columns: 46px repeat(var(--ph, 2), 1fr); gap: 2px; align-items: stretch; }
   .hourlab { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; }
   .cell {
-    height: 26px; border-radius: 3px; border: 0; padding: 0;
+    height: var(--ch, 26px); border-radius: 3px; border: 0; padding: 0;
     background: var(--plane); box-shadow: inset 0 0 0 1px var(--grid);
     position: relative; overflow: hidden; text-align: left;
   }
+  /* an hour holding a parallel activity gets taller, so the two bands each have
+     room; only the rows that need it grow */
+  .hourrow.has-along .cell { --ch: 36px; }
   .cell[data-filled="1"] { box-shadow: none; }
   /* a piece of a slot that was cut finer than the paint step */
   .cell.split { box-shadow: inset 1px 0 0 var(--surface-1), inset -1px 0 0 var(--surface-1); }
   .cell.split[data-filled="0"] { box-shadow: inset 0 0 0 1px var(--grid); }
   .cell .lab {
-    display: block; font-size: 10.5px; font-weight: 600; padding: 0 6px; line-height: 26px;
+    display: block; font-size: 10.5px; font-weight: 600; padding: 0 6px;
+    height: var(--ch, 26px); line-height: var(--ch, 26px);
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
   }
-  /* with something running alongside, the main label gives up the bottom strip */
-  .cell[data-along="1"] .lab { line-height: 16px; }
+  /* with something running alongside, the main label is boxed off above the strip.
+     The explicit height plus overflow:hidden is what stops tall emoji glyphs — which
+     routinely overshoot their line box — from being painted across the strip below. */
+  .cell[data-along="1"] .lab { height: 22px; line-height: 22px; }
   .cell .along {
-    position: absolute; left: 0; right: 0; bottom: 0; height: 10px;
-    font-size: 8.5px; line-height: 10px; font-weight: 650; padding: 0 5px;
+    position: absolute; left: 0; right: 0; bottom: 0; height: 14px;
+    font-size: 9.5px; line-height: 14px; font-weight: 650; padding: 0 5px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
     pointer-events: none; border-radius: 0 0 3px 3px;
   }
@@ -951,6 +957,9 @@
       row.appendChild(lab);
       row.style.setProperty('--ph', PER_HOUR);
       var g = bgFor(cursor, false) || [];
+      for (var ga = h * PER_HOUR; ga < h * PER_HOUR + PER_HOUR; ga++) {
+        if (g[ga]) { row.classList.add('has-along'); break; }
+      }
       var sb = stepBlocks(), i = h * PER_HOUR, rowEnd = i + PER_HOUR;
       while (i < rowEnd) {
         var win = Math.min(sb, rowEnd - i);
