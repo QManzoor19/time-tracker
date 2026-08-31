@@ -60,7 +60,9 @@ contiguous run, with a box for a line about what actually happened in it. Blocks
 memo get a dot in the grid.
 
 Memos are stored with the day they belong to, so they ride along in every JSON backup and
-fill the `memo` column of the CSV export. The **Notes** tab lists every one you have
+fill the `memo` column of the CSV export. In the **Week** grid a slot carrying a memo shows
+a small dot; clicking any slot opens a popover with its time range, category, whatever was
+running alongside, and the memo — editable there without leaving the week. The **Notes** tab lists every one you have
 written, grouped into a fold-out per day — newest open, the rest closed, each showing its
 count. Searchable by text, category or date, editable in place, and exportable on its own
 as a Markdown file. A search opens every day that has a hit, so nothing you are looking for

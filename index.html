@@ -318,6 +318,27 @@
     border: 1px solid var(--border); background: var(--plane); border-radius: 8px;
   }
   .emojibtn:hover { border-color: var(--baseline); }
+  .wcell i { position: relative; }
+  .wcell i.hasnote::after {
+    content: ""; position: absolute; right: 1px; top: 1px;
+    width: 3px; height: 3px; border-radius: 50%; background: var(--nd, #fff); opacity: .95;
+  }
+  #cellPop { position: fixed; inset: 0; z-index: 95; }
+  #cellPop[hidden] { display: none; }
+  .pop-backdrop { position: absolute; inset: 0; }
+  .pop-panel {
+    position: absolute; width: min(320px, calc(100vw - 24px));
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: var(--shadow); padding: 12px;
+    display: flex; flex-direction: column; gap: 9px;
+  }
+  .pop-when { font-size: 12.5px; font-weight: 650; }
+  .pop-when small { display: block; font-weight: 500; color: var(--muted); font-size: 11px; margin-top: 1px; }
+  .pop-cat { display: flex; align-items: center; gap: 7px; font-size: 12.5px; }
+  .pop-cat i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .pop-cat .dur { margin-left: auto; color: var(--text-secondary); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+  .pop-cat.sub { color: var(--text-secondary); font-size: 12px; }
+  .pop-panel input { width: 100%; }
   #emojiPop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; }
   #emojiPop[hidden] { display: none; }
   .emoji-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .38); }
@@ -623,6 +644,20 @@
     </div>
   </section>
 </main>
+
+<div id="cellPop" hidden>
+  <div class="pop-backdrop"></div>
+  <div class="pop-panel">
+    <div class="pop-when" id="popWhen"></div>
+    <div id="popCats"></div>
+    <input type="text" id="popMemo" maxlength="280" placeholder="what happened? (optional)">
+    <div class="row">
+      <button class="btn sm" id="popOpen">Open this day</button>
+      <span class="grow"></span>
+      <button class="btn sm" id="popClose">Close</button>
+    </div>
+  </div>
+</div>
 
 <div id="emojiPop" hidden>
   <div class="emoji-backdrop"></div>
@@ -1529,6 +1564,7 @@
       html += '<div class="hr">' + (h % 3 === 0 ? String(h).padStart(2, '0') : '') + '</div>';
       for (var k = 0; k < 7; k++) {
         var b = blocksFor(days[k], false), gArr = bgFor(days[k], false);
+        var dayNotes = notesFor(days[k], false);
         html += '<div class="wcell">';
         for (var s = 0; s < 2; s++) {
           var m0 = h * 60 + s * 30;
@@ -1537,7 +1573,16 @@
           var st = [];
           if (id) st.push('background:' + colorFor(id));
           if (gid) st.push('box-shadow:inset 0 -3px 0 ' + colorFor(gid));
-          html += '<i data-filled="' + (id ? 1 : 0) + '" data-d="' + days[k] + '" data-i="' + Math.floor(m0 / MIN) + '"' +
+          // a dot marks a slot that carries a memo, so the popover is worth opening
+          var bi = Math.floor(m0 / MIN), hasNote = false;
+          if (id && dayNotes) {
+            for (var nb2 = bi; nb2 < bi + Math.round(30 / MIN); nb2++) {
+              if (dayNotes[nb2]) { hasNote = true; break; }
+            }
+          }
+          if (hasNote) st.push('--nd:' + inkOn(colorFor(id)));
+          html += '<i class="' + (hasNote ? 'hasnote' : '') + '" data-filled="' + (id ? 1 : 0) +
+            '" data-d="' + days[k] + '" data-i="' + bi + '"' +
             (st.length ? ' style="' + st.join(';') + '"' : '') + '></i>';
         }
         html += '</div>';
@@ -1571,7 +1616,8 @@
   document.getElementById('weekGrid').addEventListener('click', function (e) {
     var c = e.target.closest ? e.target.closest('[data-d]') : null;
     if (!c) return;
-    cursor = c.dataset.d; undoStack = []; redoStack = []; setView('day');
+    hideTip();
+    openCellPop(c.dataset.d, +c.dataset.i, e.clientX, e.clientY);
   });
   document.getElementById('prevWeek').onclick = function () { weekCursor = addDays(weekCursor, -7); renderWeek(); };
   document.getElementById('nextWeek').onclick = function () { if (mondayOf(weekCursor) < mondayOf(todayISO())) { weekCursor = addDays(weekCursor, 7); renderWeek(); } };
@@ -1708,6 +1754,85 @@
     document.getElementById('insTable').innerHTML = html + '</tbody>';
   }
 
+  /* ══════════════ cell popover (from the week grid) ══════════════ */
+  var cellPop = document.getElementById('cellPop');
+  var popCtx = null;   // { day, key }
+
+  function closeCellPop() { cellPop.hidden = true; popCtx = null; }
+
+  function openCellPop(day, i, x, y) {
+    var main = runAt(day, i, 'b');
+    var along = runAt(day, i, 'g');
+    var mc = main ? catById(main.id) : null;
+    var ac = along ? catById(along.id) : null;
+
+    document.getElementById('popWhen').innerHTML =
+      esc(fmtDate(day, true)) + '<small>' +
+      (main
+        ? blockTime(main.start) + '\u2013' + (main.end + 1 >= BLOCKS ? '24:00' : blockTime(main.end + 1))
+        : blockTime(i) + '\u2013' + blockTime((i + 1) % BLOCKS) + ' \u00b7 nothing logged') +
+      '</small>';
+
+    var cats = '';
+    if (mc) {
+      cats += '<div class="pop-cat"><i style="background:' + colorOf(mc) + '"></i>' +
+              mc.emoji + ' ' + esc(mc.name) + '<span class="dur">' + fmtH(main.mins / 60) + '</span></div>';
+    }
+    if (ac) {
+      cats += '<div class="pop-cat sub"><i style="background:' + colorOf(ac) + '"></i>+ ' +
+              ac.emoji + ' ' + esc(ac.name) + ' alongside<span class="dur">' + fmtH(along.mins / 60) + '</span></div>';
+    }
+    if (!mc && !ac) cats = '<p class="note" style="margin:0">Nothing logged in this slot.</p>';
+    document.getElementById('popCats').innerHTML = cats;
+
+    // the memo belongs to the main stretch; with nothing logged there is nothing to pin it to
+    var memo = document.getElementById('popMemo');
+    if (main) {
+      var n = noteIn(day, main);
+      popCtx = { day: day, key: n.key };
+      memo.hidden = false;
+      memo.value = n.text;
+    } else {
+      popCtx = null;
+      memo.hidden = true;
+      memo.value = '';
+    }
+
+    document.getElementById('popOpen').onclick = function () {
+      closeCellPop();
+      cursor = day; undoStack = []; redoStack = [];
+      setView('day');
+    };
+
+    cellPop.hidden = false;
+    // place it near the click, then pull it back inside the viewport
+    var panel = cellPop.querySelector('.pop-panel');
+    panel.style.left = '0px'; panel.style.top = '0px';
+    var r = panel.getBoundingClientRect();
+    var left = Math.min(Math.max(8, x - r.width / 2), innerWidth - r.width - 8);
+    var top = y + 14;
+    if (top + r.height > innerHeight - 8) top = Math.max(8, y - r.height - 14);
+    panel.style.left = left + 'px';
+    panel.style.top = top + 'px';
+    // deliberately not focused: this is opened to read a memo far more often than to
+    // write one, and on a phone the keyboard would cover the popover on arrival
+  }
+
+  document.getElementById('popMemo').onchange = function () {
+    if (!popCtx) return;
+    setNote(popCtx.day, popCtx.key, this.value.trim());
+    renderWeek();        // repaint so the memo dot appears or clears
+  };
+  document.getElementById('popMemo').onkeydown = function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); this.blur(); closeCellPop(); }
+    e.stopPropagation();
+  };
+  document.getElementById('popClose').onclick = closeCellPop;
+  cellPop.querySelector('.pop-backdrop').onclick = closeCellPop;
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !cellPop.hidden) closeCellPop();
+  });
+
   /* ══════════════ NOTES (every memo, across every day) ══════════════ */
   // Memos are stored per day as { blockIndex: text }. Here we resolve each one back to
   // the stretch it sits in, so it can be shown with its time range and category.
@@ -1728,6 +1853,15 @@
       });
     });
     return out;
+  }
+
+  function runAt(day, i, layer) {
+    var b = layer === 'g' ? bgFor(day, false) : blocksFor(day, false);
+    if (!b || !b[i]) return null;
+    var st = i, en = i;
+    while (st > 0 && b[st - 1] === b[i]) st--;
+    while (en < BLOCKS - 1 && b[en + 1] === b[i]) en++;
+    return { start: st, end: en, id: b[i], mins: (en - st + 1) * MIN };
   }
 
   function memoMatches(m, q) {
