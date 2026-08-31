@@ -72,7 +72,9 @@ rather than fudged. Rename a category instead.
 Everything lives in the browser's `localStorage` under `timeTracker.v1`. It is never sent
 anywhere — there is no backend to send it to. Consequences worth knowing:
 
-- **Clearing site data deletes your history.** Use **Setup → Backup (JSON)** now and then.
+- **Clearing site data deletes your history.** Hit the 💾 button in the top bar to
+  download a JSON backup; the app nags you with a banner once a backup is more than a week
+  old, and shows the age of your last one under **Setup → Your data**.
 - **Devices don't sync.** Phone and laptop keep separate logs.
 - CSV export is also available — one row per contiguous run
   (`date, start, end, category, kind, minutes`).

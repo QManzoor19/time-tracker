@@ -190,6 +190,7 @@
     background: var(--plane); border: 1px solid var(--border); border-left: 3px solid var(--warning);
     border-radius: 10px; padding: 10px 13px; font-size: 13px; margin-bottom: 14px;
   }
+  .banner.overdue { border-left-color: var(--critical); }
   .note { font-size: 12px; color: var(--muted); line-height: 1.55; }
   .kind { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 5px; background: var(--plane); border: 1px solid var(--border); color: var(--text-secondary); }
   .catrow { display: grid; grid-template-columns: 24px 1fr 96px 84px 30px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); }
@@ -221,11 +222,14 @@
       <button role="tab" data-view="insights" aria-selected="false">Insights</button>
       <button role="tab" data-view="setup" aria-selected="false">Setup</button>
     </div>
+    <button class="icon-btn" id="backupBtn" title="Download a backup of all your data">💾</button>
     <button class="icon-btn" id="themeBtn" title="Toggle dark mode">🌙</button>
   </div>
 </header>
 
 <main class="wrap" style="padding-top:16px">
+
+  <div id="backupNudge"></div>
 
   <!-- ============ DAY ============ -->
   <section id="v-day">
@@ -575,6 +579,43 @@
     var logged = t.logged / 60, un = 24 - logged;
     el.innerHTML = '<b>' + fmtH(logged) + '</b> logged · ' + fmtH(un) + ' blank · ' +
       fmtH(kindTotal(t.per, 'leak') / 60) + ' leak';
+  }
+
+  // ---- backup age & nudge ----
+  function loggedDayCount() {
+    var n = 0;
+    for (var d in state.days) {
+      var b = state.days[d].b;
+      if (b && b.some(Boolean)) n++;
+    }
+    return n;
+  }
+  function backupAge() {
+    if (!state.lastBackup) return null;
+    var ms = parseISO(todayISO()) - parseISO(state.lastBackup);
+    return Math.max(0, Math.round(ms / 86400000));
+  }
+  function renderBackupNudge() {
+    var el = document.getElementById('backupNudge');
+    el.innerHTML = '';
+    var days = loggedDayCount();
+    if (!days) return;                       // nothing to lose yet
+    var age = backupAge();
+    if (age !== null && age < 7) return;     // backed up recently enough
+    if (age === null && days < 2) return;    // one day in — not worth nagging
+
+    var overdue = age === null || age >= 21;
+    var d = document.createElement('div');
+    d.className = 'banner' + (overdue ? ' overdue' : '');
+    d.innerHTML = '<b>' + days + ' day' + (days === 1 ? '' : 's') + ' of data, ' +
+      (age === null ? 'never backed up' : 'last backup ' + age + ' days ago') +
+      '.</b> It lives only in this browser \u2014 clearing site data would take all of it.';
+    var btn = document.createElement('button');
+    btn.className = 'btn sm';
+    btn.textContent = '\ud83d\udcbe Back up now';
+    btn.onclick = exportJson;
+    d.appendChild(btn);
+    el.appendChild(d);
   }
 
   function renderBanner() {
@@ -991,8 +1032,12 @@
 
     try {
       var bytes = new Blob([JSON.stringify(state)]).size;
+      var age = backupAge();
       document.getElementById('dataSize').textContent =
-        Object.keys(state.days).length + ' days · ' + (bytes / 1024).toFixed(1) + ' KB';
+        Object.keys(state.days).length + ' days · ' + (bytes / 1024).toFixed(1) + ' KB · ' +
+        (age === null ? 'never backed up'
+          : age === 0 ? 'backed up today'
+          : 'backed up ' + age + ' day' + (age === 1 ? '' : 's') + ' ago');
     } catch (e) {}
   }
 
@@ -1012,9 +1057,23 @@
     a.href = URL.createObjectURL(b); a.download = name; a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); }, 1000);
   }
-  document.getElementById('expJson').onclick = function () {
+  // one backup path, wired to both the header button and the Setup button
+  function exportJson() {
+    state.lastBackup = todayISO();
+    save();
     download('time-tracker-backup-' + todayISO() + '.json', JSON.stringify(state, null, 2), 'application/json');
-  };
+    if (view === 'setup') renderSetup();
+    renderBackupNudge();
+    flashBackupBtn();
+  }
+  document.getElementById('expJson').onclick = exportJson;
+  document.getElementById('backupBtn').onclick = exportJson;
+
+  function flashBackupBtn() {
+    var b = document.getElementById('backupBtn');
+    b.textContent = '\u2713';
+    setTimeout(function () { b.textContent = '\ud83d\udcbe'; }, 1400);
+  }
   document.getElementById('expCsv').onclick = function () {
     var rows = [['date', 'start', 'end', 'category', 'kind', 'minutes']];
     Object.keys(state.days).sort().forEach(function (d) {
@@ -1086,6 +1145,7 @@
   function renderAll() {
     renderPalette();
     syncThemeBtn();
+    renderBackupNudge();
     if (view === 'day') renderDay();
     else if (view === 'week') renderWeek();
     else if (view === 'insights') renderInsights();
