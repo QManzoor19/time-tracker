@@ -57,7 +57,12 @@ ignore it: parallel time must not be able to fake an accounted-for day.
 
 After a stretch is painted it shows up in the **Day log** beneath the grid — one row per
 contiguous run, with a box for a line about what actually happened in it. Blocks carrying a
-memo get a dot in the grid, and memos travel in the CSV export.
+memo get a dot in the grid.
+
+Memos are stored with the day they belong to, so they ride along in every JSON backup and
+fill the `memo` column of the CSV export. The **Notes** tab lists every one you have
+written, newest first, searchable by text, category or date, editable in place, and
+exportable on its own as a Markdown file.
 
 This is deliberately **not** a live start/stop timer and **not** an end-of-day journal.
 Timers get abandoned the first time you forget to hit stop, and whole-day recall
@@ -131,7 +136,8 @@ anywhere — there is no backend to send it to. Consequences worth knowing:
   old, and shows the age of your last one under **Setup → Your data**.
 - **Devices don't sync.** Phone and laptop keep separate logs.
 - CSV export is also available — one row per contiguous run
-  (`date, start, end, category, kind, minutes`).
+  (`date, start, end, layer, category, kind, minutes, memo`).
+- Memos can be exported alone as Markdown from the Notes tab.
 
 ## Running it
 
