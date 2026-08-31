@@ -39,8 +39,13 @@ appears with a single **Fill 14:30 → now** button, which is most of the daily 
 
 ## Categories
 
-Eight defaults — Sleep, Deep work, Korean study, Admin & chores, Health & food, People,
-Leisure, Scroll & drift. Rename, retarget and re-kind them freely in **Setup**.
+Eight to start — Sleep, Deep work, Korean study, Admin & chores, Health & food, People,
+Leisure, Scroll & drift — and there is no limit on how many you add. Everything about a
+category is editable in **Setup**: colour, icon, name, kind, daily target, and its position
+in the list.
+
+Order matters beyond looks: it sets the paint-palette order, the legend order, and which
+number key selects what (the first nine get `1`–`9`).
 
 Each category has a *kind* that drives the scoring:
 
@@ -51,10 +56,15 @@ Each category has a *kind* that drives the scoring:
 | `rest` | a band — hit it, don't exceed it much | sleep |
 | `leak` | a **ceiling** — stay under it | scrolling, drift |
 
-**Eight is a hard cap, on purpose.** The category colours come from a validated categorical
-palette with eight slots, ordered so that every adjacent pair stays distinguishable under
-colour-blind simulation. A ninth generated hue would break that, so adding one is disabled
-rather than fudged. Rename a category instead.
+**A note on colours.** The eight built-in hues come from a validated categorical palette,
+ordered so every adjacent pair stays distinguishable under colour-blindness simulation.
+They show up as suggestions inside the colour picker, and are worth preferring. Beyond
+those eight you are on your own: nothing stops you picking two blues you cannot tell apart
+in the week heatmap. The icons and the table view are what keep the display readable when
+the colours stop pulling their weight.
+
+Text drawn on a category — the labels in the day grid — picks black or white by measured
+contrast against the fill, so a colour you invent still gets a legible label.
 
 ## What it computes
 
