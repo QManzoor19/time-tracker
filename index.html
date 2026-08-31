@@ -258,6 +258,30 @@
     .catrow > :nth-child(7) { grid-area: del; }
     .catrow.hdr { display: none; }
   }
+  .emojibtn {
+    font-size: 17px; line-height: 1.35; padding: 4px; width: 100%;
+    border: 1px solid var(--border); background: var(--plane); border-radius: 8px;
+  }
+  .emojibtn:hover { border-color: var(--baseline); }
+  #emojiPop { position: fixed; inset: 0; z-index: 100; display: grid; place-items: center; }
+  #emojiPop[hidden] { display: none; }
+  .emoji-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, .38); }
+  .emoji-panel {
+    position: relative; background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 14px; box-shadow: var(--shadow); padding: 14px;
+    width: min(430px, 92vw); max-height: 82vh; display: flex; flex-direction: column; gap: 10px;
+  }
+  .emoji-panel h3 { color: var(--text-primary); font-size: 14px; }
+  #emojiGrid { overflow-y: auto; margin: 0 -4px; padding: 0 4px; }
+  .emoji-g { font-size: 10.5px; color: var(--muted); font-weight: 650; text-transform: uppercase; letter-spacing: .04em; margin: 10px 0 4px; }
+  .emoji-g:first-child { margin-top: 0; }
+  .emoji-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(38px, 1fr)); gap: 3px; }
+  .emoji-row button {
+    font-size: 19px; line-height: 1; padding: 7px 0; border: 1px solid transparent;
+    background: transparent; border-radius: 8px;
+  }
+  .emoji-row button:hover { background: var(--plane); border-color: var(--border); }
+  .emoji-row button[aria-pressed="true"] { border-color: var(--text-primary); background: var(--plane); }
   #tip {
     position: fixed; z-index: 90; pointer-events: none; opacity: 0;
     background: var(--surface-1); color: var(--text-primary); border: 1px solid var(--border);
@@ -320,6 +344,7 @@
         <button class="btn sm" id="fillNow">⏩ Fill gap → now</button>
         <button class="btn sm" id="repeatYday">📋 Copy yesterday</button>
         <button class="btn sm" id="undoBtn" disabled>↶ Undo</button>
+        <button class="btn sm" id="redoBtn" disabled>↷ Redo</button>
         <button class="btn sm" id="clearDay">Clear day</button>
         <span class="note grow" style="text-align:right">Click or drag to paint · keys <b>1–9</b> pick, <b>0</b> erases</span>
       </div>
@@ -519,6 +544,23 @@
   </section>
 </main>
 
+<div id="emojiPop" hidden>
+  <div class="emoji-backdrop"></div>
+  <div class="emoji-panel">
+    <div class="row">
+      <h3 id="emojiTitle">Icon</h3>
+      <span class="grow"></span>
+      <button class="btn sm" id="emojiClose">Close</button>
+    </div>
+    <input type="text" id="emojiSearch" placeholder="Search — run, food, study…">
+    <div id="emojiGrid"></div>
+    <div class="row">
+      <input type="text" id="emojiCustom" maxlength="8" placeholder="or paste any character" class="grow">
+      <button class="btn sm" id="emojiUse">Use</button>
+    </div>
+  </div>
+</div>
+
 <div id="tip"></div>
 
 <script>
@@ -611,7 +653,7 @@
   var weekCursor = todayISO();  // week view anchor
   var paintCat = state.cats[1] ? state.cats[1].id : '';
   var paintLayer = 'main';   // 'main' | 'g' (alongside)
-  var undoStack = [];
+  var undoStack = [], redoStack = [];
 
   function load() {
     try {
@@ -849,7 +891,7 @@
     renderDaySummary();
     renderTargets('dayTargets', [cursor], 1);
     renderBanner();
-    document.getElementById('undoBtn').disabled = undoStack.length === 0;
+    syncUndoRedo();
   }
 
   // labels are drawn only at the start of a run, and only when asked for: mid-drag we
@@ -1109,11 +1151,30 @@
     var el = document.elementFromPoint(x, y);
     return el && el.closest ? el.closest('.cell') : null;
   }
+  function snapshot(day) {
+    var d = state.days[day] || {};
+    return {
+      day: day,
+      b: blocksFor(day, true).slice(),
+      g: bgFor(day, true).slice(),
+      n: JSON.parse(JSON.stringify(d.n || {}))
+    };
+  }
+  function restoreSnap(sn) {
+    var d = state.days[sn.day] = state.days[sn.day] || {};
+    d.b = sn.b.slice();
+    d.g = sn.g.slice();
+    d.n = JSON.parse(JSON.stringify(sn.n || {}));
+  }
+  function syncUndoRedo() {
+    document.getElementById('undoBtn').disabled = !undoStack.length;
+    document.getElementById('redoBtn').disabled = !redoStack.length;
+  }
   function pushUndo() {
-    var b = blocksFor(cursor, true), g = bgFor(cursor, true);
-    undoStack.push({ day: cursor, b: b.slice(), g: g.slice() });
+    undoStack.push(snapshot(cursor));
     if (undoStack.length > 40) undoStack.shift();
-    document.getElementById('undoBtn').disabled = false;
+    redoStack = [];          // a fresh edit invalidates anything ahead of us
+    syncUndoRedo();
   }
 
   dayGrid.addEventListener('pointerdown', function (e) {
@@ -1170,17 +1231,24 @@
     b.onclick = function () { paintLayer = b.dataset.l; renderLayerPick(); };
   });
 
-  document.getElementById('prevDay').onclick = function () { cursor = addDays(cursor, -1); undoStack = []; renderDay(); };
-  document.getElementById('nextDay').onclick = function () { if (cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; renderDay(); } };
-  document.getElementById('todayBtn').onclick = function () { cursor = todayISO(); undoStack = []; renderDay(); };
+  document.getElementById('prevDay').onclick = function () { cursor = addDays(cursor, -1); undoStack = []; redoStack = []; renderDay(); };
+  document.getElementById('nextDay').onclick = function () { if (cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; redoStack = []; renderDay(); } };
+  document.getElementById('todayBtn').onclick = function () { cursor = todayISO(); undoStack = []; redoStack = []; renderDay(); };
   document.getElementById('fillNow').onclick = fillGap;
   document.getElementById('undoBtn').onclick = function () {
     var u = undoStack.pop();
     if (!u) return;
-    state.days[u.day] = state.days[u.day] || {};
-    state.days[u.day].b = u.b;
-    state.days[u.day].g = u.g;
+    redoStack.push(snapshot(u.day));   // capture where we are before stepping back
+    restoreSnap(u);
     if (u.day !== cursor) cursor = u.day;
+    save(); renderDay();
+  };
+  document.getElementById('redoBtn').onclick = function () {
+    var r = redoStack.pop();
+    if (!r) return;
+    undoStack.push(snapshot(r.day));
+    restoreSnap(r);
+    if (r.day !== cursor) cursor = r.day;
     save(); renderDay();
   };
   document.getElementById('clearDay').onclick = function () {
@@ -1206,9 +1274,14 @@
       var c = state.cats[+e.key - 1];
       if (c) { paintCat = c.id; renderPalette(); }
     } else if (e.key === '0') { paintCat = ''; renderPalette(); }
-    else if (e.key === 'ArrowLeft') { cursor = addDays(cursor, -1); undoStack = []; renderDay(); }
-    else if (e.key === 'ArrowRight' && cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; renderDay(); }
-    else if ((e.metaKey || e.ctrlKey) && e.key === 'z') { e.preventDefault(); document.getElementById('undoBtn').click(); }
+    else if (e.key === 'ArrowLeft') { cursor = addDays(cursor, -1); undoStack = []; redoStack = []; renderDay(); }
+    else if (e.key === 'ArrowRight' && cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; redoStack = []; renderDay(); }
+    else if ((e.metaKey || e.ctrlKey) && (e.key === 'z' || e.key === 'Z')) {
+      e.preventDefault();
+      document.getElementById(e.shiftKey ? 'redoBtn' : 'undoBtn').click();
+    } else if ((e.metaKey || e.ctrlKey) && e.key === 'y') {
+      e.preventDefault(); document.getElementById('redoBtn').click();
+    }
   });
 
   /* ══════════════ TARGET BARS ══════════════ */
@@ -1340,7 +1413,7 @@
   document.getElementById('weekGrid').addEventListener('click', function (e) {
     var c = e.target.closest ? e.target.closest('[data-d]') : null;
     if (!c) return;
-    cursor = c.dataset.d; undoStack = []; setView('day');
+    cursor = c.dataset.d; undoStack = []; redoStack = []; setView('day');
   });
   document.getElementById('prevWeek').onclick = function () { weekCursor = addDays(weekCursor, -7); renderWeek(); };
   document.getElementById('nextWeek').onclick = function () { if (mondayOf(weekCursor) < mondayOf(todayISO())) { weekCursor = addDays(weekCursor, 7); renderWeek(); } };
@@ -1622,6 +1695,143 @@
       'Applied to ' + hits.length + ' categories.' + (missing.length ? ' ' + missing.length + ' had no match.' : '');
   };
 
+  /* ══════════════ emoji picker ══════════════ */
+  var EMOJI_GROUPS = [
+    ['Work & study', [
+      ['\ud83c\udfaf', 'focus deep target goal'], ['\ud83d\udcbc', 'work job business'],
+      ['\ud83d\udcbb', 'laptop code computer'], ['\u2328\ufe0f', 'typing keyboard'],
+      ['\ud83d\udcca', 'chart data analysis'], ['\ud83d\udcc8', 'growth metrics'],
+      ['\u270d\ufe0f', 'writing draft'], ['\ud83d\udcdd', 'notes memo'],
+      ['\ud83d\udcda', 'study books reading'], ['\ud83d\udcd6', 'read book'],
+      ['\ud83c\udf93', 'school class course'], ['\ud83e\udde0', 'thinking brain learn'],
+      ['\ud83d\udd2c', 'research science'], ['\ud83e\uddea', 'lab experiment'],
+      ['\ud83d\udccb', 'admin tasks list'], ['\ud83d\uddc2', 'files organise'],
+      ['\ud83d\udca1', 'ideas planning'], ['\ud83d\udcd0', 'design build']
+    ]],
+    ['Health & body', [
+      ['\ud83c\udfc3', 'run running cardio'], ['\ud83d\udeb4', 'cycling bike'],
+      ['\ud83c\udfcb\ufe0f', 'gym lifting weights'], ['\ud83e\uddd8', 'yoga meditation calm'],
+      ['\ud83c\udfca', 'swim'], ['\u26bd', 'football sport'], ['\ud83c\udfc0', 'basketball sport'],
+      ['\ud83e\udd4a', 'boxing martial'], ['\ud83e\udd38', 'stretch mobility'],
+      ['\ud83d\ude34', 'sleep nap rest'], ['\ud83d\udc8a', 'medicine health'],
+      ['\ud83e\ude7a', 'doctor appointment'], ['\ud83d\udebf', 'shower wash routine'],
+      ['\ud83e\uddf4', 'skincare grooming'], ['\ud83e\uddb7', 'teeth dentist']
+    ]],
+    ['Food', [
+      ['\ud83c\udf73', 'cooking breakfast'], ['\ud83e\udd57', 'salad healthy'],
+      ['\ud83c\udf5c', 'noodles ramen lunch'], ['\ud83c\udf5a', 'rice meal'],
+      ['\ud83c\udf55', 'pizza takeaway'], ['\ud83e\udd6a', 'sandwich lunch'],
+      ['\u2615', 'coffee break'], ['\ud83c\udf75', 'tea'], ['\ud83e\uddcb', 'drink boba'],
+      ['\ud83c\udf4e', 'fruit snack'], ['\ud83c\udf71', 'dinner meal'], ['\ud83c\udf70', 'dessert treat']
+    ]],
+    ['Home & admin', [
+      ['\ud83e\uddfe', 'admin bills paperwork'], ['\ud83e\uddf9', 'cleaning tidy chores'],
+      ['\ud83e\uddfa', 'laundry washing'], ['\ud83d\uded2', 'shopping groceries errands'],
+      ['\ud83c\udf7d', 'dishes washing up'], ['\ud83d\udd27', 'repair diy fixing'],
+      ['\ud83d\udce6', 'packing post delivery'], ['\ud83d\udcb0', 'money finance budget'],
+      ['\ud83c\udfe6', 'bank'], ['\ud83e\udeb4', 'plants garden'],
+      ['\ud83d\udc15', 'dog walk pet'], ['\ud83d\udc08', 'cat pet']
+    ]],
+    ['People', [
+      ['\ud83e\udec2', 'friends social people'], ['\ud83d\udc68\u200d\ud83d\udc69\u200d\ud83d\udc67', 'family'],
+      ['\ud83d\udcac', 'chat talking'], ['\ud83d\udcde', 'call phone'],
+      ['\ud83e\udd1d', 'meeting partner'], ['\ud83c\udf89', 'party celebration'],
+      ['\ud83e\udd42', 'drinks out'], ['\u2764\ufe0f', 'love partner date'],
+      ['\ud83d\udc4b', 'catch up greet']
+    ]],
+    ['Leisure', [
+      ['\ud83c\udfac', 'film tv watching'], ['\ud83d\udcfa', 'television series'],
+      ['\ud83c\udfae', 'gaming games'], ['\ud83d\udd79', 'games console'],
+      ['\ud83c\udfb5', 'music listening'], ['\ud83c\udfa7', 'podcast audio headphones'],
+      ['\ud83c\udfb8', 'guitar instrument practice'], ['\ud83c\udfb9', 'piano instrument'],
+      ['\ud83c\udfa8', 'art drawing painting'], ['\ud83d\udcf7', 'photography'],
+      ['\ud83c\udfb2', 'board games'], ['\ud83c\udfa4', 'singing karaoke']
+    ]],
+    ['Travel & out', [
+      ['\ud83d\ude8c', 'bus commute'], ['\ud83d\ude97', 'car driving'],
+      ['\ud83d\ude87', 'train tube metro commute'], ['\u2708\ufe0f', 'flight travel'],
+      ['\ud83d\udeb6', 'walk walking outside'], ['\ud83c\udfd6', 'holiday beach'],
+      ['\ud83c\udfd5', 'camping outdoors'], ['\ud83e\udded', 'exploring out']
+    ]],
+    ['Language', [
+      ['\ud83c\uddf0\ud83c\uddf7', 'korean hangul'], ['\ud83c\uddef\ud83c\uddf5', 'japanese'],
+      ['\ud83c\uddeb\ud83c\uddf7', 'french'], ['\ud83c\uddea\ud83c\uddf8', 'spanish'],
+      ['\ud83c\udde9\ud83c\uddea', 'german'], ['\ud83c\uddee\ud83c\uddf9', 'italian'],
+      ['\ud83c\udde8\ud83c\uddf3', 'chinese mandarin'], ['\ud83d\udde3', 'speaking practice'],
+      ['\ud83d\udd24', 'vocabulary alphabet']
+    ]],
+    ['Drift & time', [
+      ['\ud83d\udd73', 'leak drift wasted hole'], ['\ud83d\udcf1', 'phone scrolling social'],
+      ['\ud83c\udf00', 'doomscroll spiral distracted'], ['\ud83d\udca4', 'idle dozing'],
+      ['\u23f3', 'waiting queue'], ['\u23f0', 'alarm morning'],
+      ['\ud83c\udf19', 'night evening'], ['\ud83c\udf05', 'morning dawn'],
+      ['\u2b1c', 'blank none plain']
+    ]]
+  ];
+
+  var emojiTarget = null;
+  var emojiPop = document.getElementById('emojiPop');
+
+  function openEmojiPicker(cat) {
+    emojiTarget = cat;
+    document.getElementById('emojiTitle').textContent = 'Icon for ' + cat.name;
+    document.getElementById('emojiSearch').value = '';
+    document.getElementById('emojiCustom').value = '';
+    renderEmojiGrid('');
+    emojiPop.hidden = false;
+    document.getElementById('emojiSearch').focus();
+  }
+  function closeEmojiPicker() { emojiPop.hidden = true; emojiTarget = null; }
+
+  function renderEmojiGrid(q) {
+    q = (q || '').trim().toLowerCase();
+    var el = document.getElementById('emojiGrid');
+    var html = '', hits = 0;
+    EMOJI_GROUPS.forEach(function (grp) {
+      var name = grp[0];
+      var matches = grp[1].filter(function (e) {
+        return !q || e[1].indexOf(q) > -1 || name.toLowerCase().indexOf(q) > -1;
+      });
+      if (!matches.length) return;
+      hits += matches.length;
+      html += '<div class="emoji-g">' + esc(name) + '</div><div class="emoji-row">';
+      matches.forEach(function (e) {
+        html += '<button data-e="' + e[0] + '" title="' + esc(e[1]) + '"' +
+                (emojiTarget && emojiTarget.emoji === e[0] ? ' aria-pressed="true"' : '') +
+                '>' + e[0] + '</button>';
+      });
+      html += '</div>';
+    });
+    if (!hits) html = '<p class="note" style="margin:8px 0">Nothing matches \u201c' + esc(q) +
+                      '\u201d. Any character works \u2014 paste one in the box below.</p>';
+    el.innerHTML = html;
+    el.querySelectorAll('.emoji-row button').forEach(function (b) {
+      b.onclick = function () { chooseEmoji(b.dataset.e); };
+    });
+  }
+  function chooseEmoji(e) {
+    if (!emojiTarget || !e) return;
+    emojiTarget.emoji = e;
+    save();
+    closeEmojiPicker();
+    renderAll();
+  }
+
+  document.getElementById('emojiSearch').oninput = function () { renderEmojiGrid(this.value); };
+  document.getElementById('emojiClose').onclick = closeEmojiPicker;
+  document.querySelector('.emoji-backdrop').onclick = closeEmojiPicker;
+  document.getElementById('emojiUse').onclick = function () {
+    chooseEmoji(document.getElementById('emojiCustom').value.trim());
+  };
+  document.getElementById('emojiCustom').onkeydown = function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); chooseEmoji(this.value.trim()); }
+    e.stopPropagation();
+  };
+  document.getElementById('emojiSearch').onkeydown = function (e) { e.stopPropagation(); };
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && !emojiPop.hidden) closeEmojiPicker();
+  });
+
   /* ══════════════ SETUP ══════════════ */
   function renderSetup() {
     var el = document.getElementById('catList');
@@ -1637,10 +1847,11 @@
       // tear the open picker's own element out from under it
       sw.onchange = function () { c.col = sw.value; save(); renderAll(); };
 
-      var em = document.createElement('input');
-      em.type = 'text'; em.className = 'emoji'; em.value = c.emoji; em.maxLength = 8;
-      em.title = 'Icon \u2014 any emoji, or a character or two';
-      em.onchange = function () { c.emoji = em.value.trim() || '\u2b1c'; save(); renderAll(); };
+      var em = document.createElement('button');
+      em.className = 'emojibtn';
+      em.textContent = c.emoji;
+      em.title = 'Change the icon for ' + c.name;
+      em.onclick = function () { openEmojiPicker(c); };
 
       var nm = document.createElement('input');
       nm.type = 'text'; nm.value = c.name;
@@ -1753,7 +1964,7 @@
     });
     state.settings.blockMin = newMin;
     applyResolution();
-    undoStack = [];   // snapshots are the wrong length now
+    undoStack = []; redoStack = [];   // snapshots are the wrong length now
     save();
     renderAll();
   }
@@ -1774,7 +1985,7 @@
     if (last) {
       last.scrollIntoView({ block: 'center' });
       var ins = last.querySelectorAll('input[type="text"]');
-      if (ins[1]) ins[1].select();
+      if (ins[0]) ins[0].select();
     }
   };
 
@@ -1830,7 +2041,7 @@
         var d = JSON.parse(r.result);
         if (!d.cats || !d.days) throw 0;
         if (!confirm('Replace everything currently in this browser with the backup?')) return;
-        state = d; undoStack = []; save(); renderAll();
+        state = d; undoStack = []; redoStack = []; save(); renderAll();
         alert('Restored ' + Object.keys(state.days).length + ' days.');
       } catch (err) { alert('That file is not a Time Tracker backup.'); }
     };
@@ -1841,7 +2052,7 @@
     if (!confirm('Delete all logged days and reset categories? This cannot be undone.')) return;
     if (!confirm('Really? Export a backup first if there is any doubt.')) return;
     localStorage.removeItem(LS);
-    state = load(); undoStack = []; renderAll();
+    state = load(); undoStack = []; redoStack = []; renderAll();
   };
 
   /* ══════════════ views & theme ══════════════ */
