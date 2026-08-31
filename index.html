@@ -1487,7 +1487,7 @@
   /* ══════════════ WEEK VIEW ══════════════ */
   function renderWeek() {
     var days = weekDays(weekCursor);
-    var g = document.getElementById('weekGrid');
+    var gridEl = document.getElementById('weekGrid');
     var today = todayISO();
     document.getElementById('weekTitle').textContent =
       mondayOf(weekCursor) === mondayOf(today) ? 'This week' : fmtDate(days[0]) + ' – ' + fmtDate(days[6]);
@@ -1502,12 +1502,12 @@
     for (var h = 0; h < 24; h++) {
       html += '<div class="hr">' + (h % 3 === 0 ? String(h).padStart(2, '0') : '') + '</div>';
       for (var k = 0; k < 7; k++) {
-        var b = blocksFor(days[k], false), g = bgFor(days[k], false);
+        var b = blocksFor(days[k], false), gArr = bgFor(days[k], false);
         html += '<div class="wcell">';
         for (var s = 0; s < 2; s++) {
           var m0 = h * 60 + s * 30;
           var id = b ? dominantIn(b, m0, m0 + 30) : null;
-          var gid = g ? dominantIn(g, m0, m0 + 30) : null;
+          var gid = gArr ? dominantIn(gArr, m0, m0 + 30) : null;
           var st = [];
           if (id) st.push('background:' + colorFor(id));
           if (gid) st.push('box-shadow:inset 0 -3px 0 ' + colorFor(gid));
@@ -1517,7 +1517,7 @@
         html += '</div>';
       }
     }
-    g.innerHTML = html;
+    gridEl.innerHTML = html;
 
     var t = totals(days), n = daysWithData(days).length;
     document.getElementById('weekSummary').innerHTML =
