@@ -110,14 +110,22 @@
   .hourrow { display: grid; grid-template-columns: 46px repeat(var(--ph, 2), 1fr); gap: 2px; align-items: stretch; }
   .hourlab { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; }
   .cell {
-    height: 22px; border-radius: 3px; border: 0; padding: 0;
+    height: 26px; border-radius: 3px; border: 0; padding: 0;
     background: var(--plane); box-shadow: inset 0 0 0 1px var(--grid);
     position: relative; overflow: hidden; text-align: left;
   }
   .cell[data-filled="1"] { box-shadow: none; }
   .cell .lab {
-    display: block; font-size: 10.5px; font-weight: 600; padding: 0 6px; line-height: 22px;
+    display: block; font-size: 10.5px; font-weight: 600; padding: 0 6px; line-height: 26px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
+  }
+  /* with something running alongside, the main label gives up the bottom strip */
+  .cell[data-along="1"] .lab { line-height: 16px; }
+  .cell .along {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 10px;
+    font-size: 8.5px; line-height: 10px; font-weight: 650; padding: 0 5px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    pointer-events: none; border-radius: 0 0 3px 3px;
   }
   .cell:focus-visible { outline: 2px solid var(--text-primary); outline-offset: 1px; }
   .hourrow.now .hourlab { color: var(--text-primary); font-weight: 700; }
@@ -213,10 +221,6 @@
     .logrow > :nth-child(1) { grid-area: t; } .logrow > :nth-child(2) { grid-area: c; }
     .logrow > :nth-child(3) { grid-area: d; } .logrow > :nth-child(4) { grid-area: n; }
   }
-  .cell[data-along="1"]::before {
-    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 5px;
-    background: var(--alongc); border-radius: 0 0 3px 3px;
-  }
   .layerpick { display: inline-flex; gap: 2px; background: var(--plane); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
   .layerpick button { border: 0; background: transparent; border-radius: 6px; padding: 5px 11px; font-size: 12.5px; font-weight: 550; color: var(--text-secondary); }
   .layerpick button[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
@@ -309,8 +313,9 @@
           <button data-l="main" aria-pressed="true">Main</button>
           <button data-l="g" aria-pressed="false">＋ Alongside</button>
         </div>
-        <span class="note" id="layerHint"></span>
+        <div class="layerpick" id="resPickDay" title="How finely the day is cut"></div>
       </div>
+      <p class="note" id="layerHint" style="margin:8px 0 0"></p>
       <div class="row" style="margin-top:10px">
         <button class="btn sm" id="fillNow">⏩ Fill gap → now</button>
         <button class="btn sm" id="repeatYday">📋 Copy yesterday</button>
@@ -847,19 +852,32 @@
     document.getElementById('undoBtn').disabled = undoStack.length === 0;
   }
 
+  // labels are drawn only at the start of a run, and only when asked for: mid-drag we
+  // repaint colours alone, then relabel() does a single pass at the end of the stroke
+  function cellHTML(i, labels) {
+    var b = blocksFor(cursor, false) || [], g = bgFor(cursor, false) || [];
+    var h = '';
+    var c = b[i] ? catById(b[i]) : null;
+    if (c && labels && b[i] !== (b[i - 1] || null)) {
+      h += '<span class="lab" style="color:' + inkOn(colorOf(c)) + '">' + c.emoji + ' ' + esc(c.name) + '</span>';
+    }
+    var gc = g[i] ? catById(g[i]) : null;
+    if (gc) {
+      var gcol = colorOf(gc);
+      var txt = (labels && g[i] !== (g[i - 1] || null)) ? gc.emoji + ' ' + esc(gc.name) : '';
+      h += '<span class="along" style="background:' + gcol + ';color:' + inkOn(gcol) + '">' + txt + '</span>';
+    }
+    return h;
+  }
+
   function paintCell(cell, i) {
     var b = blocksFor(cursor, false) || [], g = bgFor(cursor, false) || [];
     var c = b[i] ? catById(b[i]) : null;
     var gc = g[i] ? catById(g[i]) : null;
     cell.dataset.filled = c ? '1' : '0';
     cell.style.background = c ? colorOf(c) : '';
-    if (gc) {
-      cell.dataset.along = '1';
-      cell.style.setProperty('--alongc', colorOf(gc));
-    } else {
-      delete cell.dataset.along;
-      cell.style.removeProperty('--alongc');
-    }
+    if (gc) cell.dataset.along = '1'; else delete cell.dataset.along;
+    cell.innerHTML = cellHTML(i, false);
     cell.title = blockTime(i) + '\u2013' + blockTime((i + 1) % BLOCKS) +
       (c ? ' \u00b7 ' + c.name : ' \u00b7 unlogged') +
       (gc ? '  +  ' + gc.name + ' alongside' : '');
@@ -885,15 +903,7 @@
     var cells = dayGrid.querySelectorAll('.cell');
     for (var i = 0; i < cells.length; i++) {
       var id = b[i] || null;
-      var col = null;
-      if (id && id !== (b[i - 1] || null)) {
-        var c = catById(id);
-        if (c) {
-          col = colorOf(c);
-          cells[i].innerHTML = '<span class="lab" style="color:' + inkOn(col) + '">' + c.emoji + ' ' + esc(c.name) + '</span>';
-        }
-      }
-      if (col === null) cells[i].innerHTML = '';
+      cells[i].innerHTML = cellHTML(i, true);
       if (id && n[i]) {
         cells[i].dataset.note = '1';
         cells[i].style.setProperty('--dot', inkOn(colorOf(catById(id)) || '#000000'));
@@ -1142,6 +1152,15 @@
   function renderLayerPick() {
     document.querySelectorAll('#layerPick button').forEach(function (b) {
       b.setAttribute('aria-pressed', String(b.dataset.l === paintLayer));
+    });
+    var rp = document.getElementById('resPickDay');
+    rp.innerHTML = '';
+    RESOLUTIONS.forEach(function (m) {
+      var b = document.createElement('button');
+      b.textContent = m + 'm';
+      b.setAttribute('aria-pressed', String(m === MIN));
+      b.onclick = function () { setResolution(m); };
+      rp.appendChild(b);
     });
     document.getElementById('layerHint').textContent = paintLayer === 'g'
       ? 'Painting the background layer \u2014 something running alongside the main activity. It gets full credit for the same clock time, so totals can pass 24h.'

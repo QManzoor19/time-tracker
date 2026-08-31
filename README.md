@@ -23,16 +23,19 @@ Two questions, and it is built around only these two:
 
 You **paint** the day. Pick a category, then click or drag across the blocks you just lived.
 
-**Block size** is yours to set in Setup — 30, 15 or 10 minutes (48, 96 or 144 blocks a day).
+**Block size** is 30, 15 or 10 minutes (48, 96 or 144 blocks a day), switchable from the
+Day view or from Setup.
 Changing it rewrites your existing days: going finer is lossless, going coarser keeps
 whichever category held most of each new block and discards the rest. The week heatmap
 always draws at half-hour granularity regardless, because 10-minute blocks would be 42
 unreadable slivers per row.
 
 **Two layers.** Each block has a *main* activity and an optional *alongside* one, toggled
-above the grid — chores + podcast, commute + audiobook, gym + call. The alongside layer
-draws as a bar along the foot of the block and gets full credit for the same clock time, so
-category totals can legitimately exceed 24h in a day. Coverage and "unlogged" deliberately
+above the grid — chores + podcast, commute + audiobook, gym + call. The alongside activity
+draws as a named strip along the foot of the block, labelled at the start of its own run
+rather than the main one's, so a podcast that covers half a work block reads correctly. It
+gets full credit for the same clock time, so category totals can legitimately exceed 24h in
+a day. Coverage and "unlogged" deliberately
 ignore it: parallel time must not be able to fake an accounted-for day.
 
 | Key | Action |
