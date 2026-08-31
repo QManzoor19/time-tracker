@@ -40,10 +40,11 @@ ignore it: parallel time must not be able to fake an accounted-for day.
 
 | Key | Action |
 |---|---|
-| `1`–`8` | pick a category |
+| `1`–`9` | pick a category |
 | `0` | eraser |
 | `←` `→` | previous / next day |
 | `⌘Z` / `Ctrl+Z` | undo |
+| `⌘⇧Z` / `Ctrl+Y` | redo |
 
 After a stretch is painted it shows up in the **Day log** beneath the grid — one row per
 contiguous run, with a box for a line about what actually happened in it. Blocks carrying a
@@ -61,6 +62,10 @@ Eight to start — Sleep, Deep work, Korean study, Admin & chores, Health & food
 Leisure, Scroll & drift — and there is no limit on how many you add. Everything about a
 category is editable in **Setup**: colour, icon, name, kind, daily target, and its position
 in the list.
+
+The **icon** is a picker — 104 emoji in nine activity groups (work, health, food, home,
+people, leisure, travel, language, drift), searchable by keyword. Anything not in the list
+can still be pasted in, so the list is a shortcut rather than a limit.
 
 Order matters beyond looks: it sets the paint-palette order, the legend order, and which
 number key selects what (the first nine get `1`–`9`).
