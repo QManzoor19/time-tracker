@@ -61,8 +61,10 @@ memo get a dot in the grid.
 
 Memos are stored with the day they belong to, so they ride along in every JSON backup and
 fill the `memo` column of the CSV export. The **Notes** tab lists every one you have
-written, newest first, searchable by text, category or date, editable in place, and
-exportable on its own as a Markdown file.
+written, grouped into a fold-out per day — newest open, the rest closed, each showing its
+count. Searchable by text, category or date, editable in place, and exportable on its own
+as a Markdown file. A search opens every day that has a hit, so nothing you are looking for
+can hide behind a closed fold.
 
 This is deliberately **not** a live start/stop timer and **not** an end-of-day journal.
 Timers get abandoned the first time you forget to hit stop, and whole-day recall

@@ -253,10 +253,22 @@
   .layerpick button[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
   .logrow.along .c span { color: var(--text-secondary); }
   .logrow.along .t { opacity: .8; }
-  .memoday { font-size: 12.5px; font-weight: 650; margin: 16px 0 6px; padding-bottom: 5px; border-bottom: 1px solid var(--grid); display: flex; align-items: baseline; gap: 8px; }
+  .memoday { display: flex; align-items: center; gap: 8px; margin: 14px 0 0; padding-bottom: 5px; border-bottom: 1px solid var(--grid); }
   .memoday:first-child { margin-top: 0; }
-  .memoday .go { font-size: 11px; font-weight: 500; color: var(--muted); background: none; border: 0; padding: 0; text-decoration: underline; }
+  .memoday .toggle {
+    display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0;
+    background: none; border: 0; padding: 4px 0; font-size: 12.5px; font-weight: 650;
+    color: var(--text-primary); text-align: left;
+  }
+  .memoday .toggle:hover .d { text-decoration: underline; }
+  .memoday .caret { display: inline-block; width: 10px; color: var(--muted); font-size: 10px; transition: transform .12s; }
+  .memoday .toggle[aria-expanded="true"] .caret { transform: rotate(90deg); }
+  .memoday .d { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .memoday .n { font-size: 11px; font-weight: 550; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .memoday .go { font-size: 11px; font-weight: 500; color: var(--muted); background: none; border: 0; padding: 4px 0; text-decoration: underline; flex: none; }
   .memoday .go:hover { color: var(--text-primary); }
+  .memogroup[hidden] { display: none; }
+  .memogroup { padding: 2px 0 6px; }
   .memorow { display: grid; grid-template-columns: 96px 150px 1fr; gap: 10px; align-items: center; padding: 6px 0; }
   .memorow .t { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
   .memorow .c { font-size: 12.5px; display: flex; align-items: center; gap: 7px; min-width: 0; }
@@ -434,6 +446,8 @@
       <div class="card-head"><h2>Every memo</h2><div class="sub" id="notesCount"></div></div>
       <div class="row">
         <input type="text" id="notesSearch" class="grow" placeholder="Search memos, categories or dates…">
+        <button class="btn sm" id="notesExpand">Expand all</button>
+        <button class="btn sm" id="notesCollapse">Collapse all</button>
         <button class="btn sm" id="notesExport">⬇ Export as Markdown</button>
       </div>
       <p class="note" style="margin:12px 0 0">
@@ -1724,6 +1738,16 @@
     return hay.indexOf(q) > -1;
   }
 
+  var notesOpen = {};   // day -> expanded, for this session only
+
+  function setAllNotesOpen(v) {
+    Object.keys(state.days).forEach(function (d) { notesOpen[d] = v; });
+    document.getElementById('notesSearch').value = '';   // a search forces everything open
+    renderNotes();
+  }
+  document.getElementById('notesExpand').onclick = function () { setAllNotesOpen(true); };
+  document.getElementById('notesCollapse').onclick = function () { setAllNotesOpen(false); };
+
   function renderNotes() {
     var q = document.getElementById('notesSearch').value.trim().toLowerCase();
     var all = allMemos();
@@ -1746,23 +1770,61 @@
       return;
     }
 
-    var lastDay = null;
+    // group by day so each one can be opened and closed
+    var order = [], byDay = {};
     shown.forEach(function (m) {
-      if (m.day !== lastDay) {
-        lastDay = m.day;
-        var hd = document.createElement('div');
-        hd.className = 'memoday';
-        hd.textContent = fmtDate(m.day, true);
-        var go = document.createElement('button');
-        go.className = 'go';
-        go.textContent = 'open this day';
-        go.onclick = (function (d) {
-          return function () { cursor = d; undoStack = []; redoStack = []; setView('day'); };
-        })(m.day);
-        hd.appendChild(go);
-        el.appendChild(hd);
-      }
+      if (!byDay[m.day]) { byDay[m.day] = []; order.push(m.day); }
+      byDay[m.day].push(m);
+    });
+    // a day never seen before opens if it is the newest, otherwise starts closed
+    order.forEach(function (d, idx) {
+      if (!(d in notesOpen)) notesOpen[d] = idx === 0;
+    });
 
+    order.forEach(function (day) {
+      var items = byDay[day];
+      // while searching, everything with a hit is open — results must never hide
+      // behind a collapsed day
+      var open = q ? true : !!notesOpen[day];
+
+      var hd = document.createElement('div');
+      hd.className = 'memoday';
+
+      var tog = document.createElement('button');
+      tog.className = 'toggle';
+      tog.setAttribute('aria-expanded', String(open));
+      tog.innerHTML = '<span class="caret">\u25b6</span><span class="d">' + esc(fmtDate(day, true)) +
+                      '</span><span class="n">' + items.length + '</span>';
+
+      var go = document.createElement('button');
+      go.className = 'go';
+      go.textContent = 'open this day';
+      go.onclick = (function (d) {
+        return function () { cursor = d; undoStack = []; redoStack = []; setView('day'); };
+      })(day);
+
+      hd.appendChild(tog); hd.appendChild(go);
+      el.appendChild(hd);
+
+      var grp = document.createElement('div');
+      grp.className = 'memogroup';
+      grp.hidden = !open;
+      el.appendChild(grp);
+
+      tog.onclick = (function (d, g, t) {
+        return function () {
+          var now = g.hidden;
+          g.hidden = !now;
+          t.setAttribute('aria-expanded', String(now));
+          notesOpen[d] = now;      // remembered for this session
+        };
+      })(day, grp, tog);
+
+      items.forEach(function (m) { grp.appendChild(memoRow(m)); });
+    });
+  }
+
+  function memoRow(m) {
       var c = m.id ? catById(m.id) : null;
       var row = document.createElement('div');
       row.className = 'memorow' + (c ? '' : ' orphan');
@@ -1791,8 +1853,7 @@
       })(m);
 
       row.appendChild(t); row.appendChild(cc); row.appendChild(inp);
-      el.appendChild(row);
-    });
+      return row;
   }
 
   document.getElementById('notesSearch').oninput = renderNotes;
