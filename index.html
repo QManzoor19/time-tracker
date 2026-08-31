@@ -144,7 +144,15 @@
   .tile .d.up { color: var(--good); } .tile .d.down { color: var(--critical); }
 
   /* ---------- target bars ---------- */
-  .tbar { display: grid; grid-template-columns: 132px 1fr 74px; gap: 10px; align-items: center; padding: 14px 0 5px; }
+  .tbar { display: grid; grid-template-columns: 132px 1fr 74px 60px; gap: 10px; align-items: center; padding: 14px 0 5px; }
+  .tgtbtn {
+    border: 1px dashed var(--baseline); background: transparent; border-radius: 7px;
+    padding: 4px 6px; font-size: 12px; width: 100%; color: var(--text-secondary);
+    font-variant-numeric: tabular-nums;
+  }
+  .tgtbtn:hover { border-style: solid; border-color: var(--text-primary); color: var(--text-primary); }
+  .tgtbtn b { font-weight: 600; }
+  .tbar input.tgtin { width: 100%; padding: 4px 6px; font-size: 12px; }
   .tbar .nm { font-size: 12.5px; display: flex; align-items: center; gap: 7px; min-width: 0; }
   .tbar .nm span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tbar .nm i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
@@ -191,6 +199,24 @@
     border-radius: 10px; padding: 10px 13px; font-size: 13px; margin-bottom: 14px;
   }
   .banner.overdue { border-left-color: var(--critical); }
+  .logrow { display: grid; grid-template-columns: 96px 158px 58px 1fr; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--grid); }
+  .logrow:last-child { border-bottom: 0; }
+  .logrow .t { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+  .logrow .c { font-size: 12.5px; display: flex; align-items: center; gap: 7px; min-width: 0; }
+  .logrow .c i { width: 10px; height: 10px; border-radius: 3px; flex: none; }
+  .logrow .c span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .logrow .d { font-size: 12px; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+  .logrow input { width: 100%; }
+  .logrow input::placeholder { color: var(--muted); opacity: .7; }
+  @media (max-width: 700px) {
+    .logrow { grid-template-columns: 84px 1fr 54px; grid-template-areas: "t c d" "n n n"; row-gap: 6px; }
+    .logrow > :nth-child(1) { grid-area: t; } .logrow > :nth-child(2) { grid-area: c; }
+    .logrow > :nth-child(3) { grid-area: d; } .logrow > :nth-child(4) { grid-area: n; }
+  }
+  .cell[data-note="1"]::after {
+    content: ""; position: absolute; right: 4px; top: 4px;
+    width: 4px; height: 4px; border-radius: 50%; background: var(--dot, #fff); opacity: .9;
+  }
   .note { font-size: 12px; color: var(--muted); line-height: 1.55; }
   .kind { font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 5px; background: var(--plane); border: 1px solid var(--border); color: var(--text-secondary); }
   .catrow { display: grid; grid-template-columns: 40px 52px 1fr 96px 76px 58px 30px; gap: 8px; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--grid); }
@@ -230,7 +256,7 @@
   @media (max-width: 640px) {
     .tabs button { padding: 6px 9px; font-size: 12px; }
     .brand small { display: none; }
-    .tbar { grid-template-columns: 100px 1fr 64px; }
+    .tbar { grid-template-columns: 88px 1fr 58px 52px; gap: 7px; }
     .hourrow { grid-template-columns: 38px 1fr 1fr; }
   }
 </style>
@@ -242,6 +268,7 @@
       <button role="tab" data-view="day" aria-selected="true">Day</button>
       <button role="tab" data-view="week" aria-selected="false">Week</button>
       <button role="tab" data-view="insights" aria-selected="false">Insights</button>
+      <button role="tab" data-view="example" aria-selected="false">Example</button>
       <button role="tab" data-view="setup" aria-selected="false">Setup</button>
     </div>
     <button class="icon-btn" id="backupBtn" title="Download a backup of all your data">💾</button>
@@ -280,7 +307,12 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>Today vs target</h2><div class="sub">bar = logged · line = target</div></div>
+      <div class="card-head"><h2>Day log</h2><div class="sub">one line per stretch — what actually happened in it</div></div>
+      <div id="dayLog"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Today vs target</h2><div class="sub">bar = logged · line = target · click a target to change it</div></div>
       <div id="dayTargets"></div>
     </div>
   </section>
@@ -327,6 +359,64 @@
     <div class="card">
       <div class="card-head"><h2>Table view</h2><div class="sub">every number above, in text</div></div>
       <table id="insTable"></table>
+    </div>
+  </section>
+
+  <!-- ============ EXAMPLE ============ -->
+  <section id="v-example" hidden>
+    <div class="card">
+      <div class="card-head"><h2>A reference week</h2><div class="sub">read-only — nothing here touches your data</div></div>
+      <p class="note" style="margin:0 0 14px">
+        This is one defensible shape for a week, not a prescription, and not a scoring rubric.
+        It exists so the empty grid has something to be compared against. The parts worth copying
+        are structural rather than numeric: <b>a fixed sleep window</b>, <b>deep work in the first
+        few waking hours and in blocks of 90 minutes</b>, <b>a leak budget that is deliberately
+        non-zero</b>, and <b>a weekend that is shaped differently on purpose</b>. The exact hours
+        should be yours.
+      </p>
+      <div class="tiles" id="exTiles"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>The week at a glance</h2><div class="sub">five weekdays, two weekend days</div></div>
+      <div class="weekgrid" id="exWeek"></div>
+      <div class="legend" id="exLegend"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>A weekday, hour by hour</h2><div class="sub">08:30 start, 23:00 lights out</div></div>
+      <div class="daygrid" id="exDay"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>What it adds up to</h2><div class="sub">weekday · weekend · weekly total</div></div>
+      <table id="exTable"></table>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" id="exApply">Use these as my daily targets</button>
+        <span class="note" id="exApplyNote"></span>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-head"><h2>Why it is shaped like this</h2></div>
+      <p class="note" style="margin:0">
+        <b>Deep work sits early and in 90-minute blocks.</b> Most people hold focused attention
+        best in the first hours after waking, and a block long enough to get past the setup cost
+        is worth more than the same minutes scattered. Three blocks is a full day of real
+        output; four is unusual to sustain.<br><br>
+        <b>The leak budget is 30 minutes, not zero.</b> A target of zero is the fastest way to
+        stop logging honestly — you start rounding down, and then the one number that could
+        change your behaviour is fiction. Give the drift a slot and see whether it stays in it.<br><br>
+        <b>Sleep is the anchor, not the leftover.</b> It is placed first and everything else fits
+        around it. It is kinded <code>rest</code> rather than <code>invest</code> deliberately: it
+        is not virtuous, it is load-bearing, and both far too little and far too much are worth
+        seeing.<br><br>
+        <b>The weekend is not a failed weekday.</b> No deep work at all, more people, a later
+        start. If your weekend looks like a weekday with worse numbers, the targets are the
+        problem, not the weekend.<br><br>
+        <b>Judge the week, never the day.</b> Every total here is a weekly one divided by seven.
+        A day that misses is noise.
+      </p>
     </div>
   </section>
 
@@ -479,6 +569,42 @@
     if (!d.b || d.b.length !== BLOCKS) d.b = new Array(BLOCKS).fill(null);
     return d.b;
   }
+  function notesFor(day, create) {
+    var d = state.days[day];
+    if (!d) { if (!create) return null; d = state.days[day] = { b: new Array(BLOCKS).fill(null) }; }
+    if (!d.n) { if (!create) return null; d.n = {}; }
+    return d.n;
+  }
+  // contiguous stretches of the same category
+  function runsFor(day) {
+    var b = blocksFor(day, false);
+    if (!b) return [];
+    var out = [], i = 0;
+    while (i < BLOCKS) {
+      if (!b[i]) { i++; continue; }
+      var j = i;
+      while (j + 1 < BLOCKS && b[j + 1] === b[i]) j++;
+      out.push({ start: i, end: j, id: b[i], mins: (j - i + 1) * MIN });
+      i = j + 1;
+    }
+    return out;
+  }
+  // a note anywhere inside a run belongs to that run — painting shifts boundaries
+  // around underneath notes, so we look across the whole span rather than at one index
+  function noteIn(day, run) {
+    var n = notesFor(day, false);
+    if (!n) return { key: run.start, text: '' };
+    for (var i = run.start; i <= run.end; i++) {
+      if (n[i]) return { key: i, text: n[i] };
+    }
+    return { key: run.start, text: '' };
+  }
+  function setNote(day, key, text) {
+    var n = notesFor(day, true);
+    if (text) n[key] = text; else delete n[key];
+    save();
+  }
+
   function catById(id) { for (var i = 0; i < state.cats.length; i++) if (state.cats[i].id === id) return state.cats[i]; return null; }
   function isDark() { return document.documentElement.getAttribute('data-theme') === 'dark'; }
   // the editable base hex: a custom colour if set, otherwise the palette slot's light step
@@ -598,6 +724,7 @@
       dayGrid.appendChild(row);
     }
     relabel();
+    renderDayLog();
     renderDaySummary();
     renderTargets('dayTargets', [cursor], 1);
     renderBanner();
@@ -611,8 +738,6 @@
     cell.title = blockTime(i) + '–' + blockTime((i + 1) % BLOCKS) + (c ? ' · ' + c.name : ' · unlogged');
   }
 
-  // white ink on dark fills, near-black on light ones — several palette slots
-  // (yellow, magenta, aqua) are far too light to carry white text
   // pick whichever ink actually contrasts better against the fill, rather than
   // guessing at a lightness threshold — categories can now be any colour at all
   var INK_DARK = '#0b0b0b', INK_LIGHT = '#ffffff';
@@ -629,18 +754,94 @@
   // label only the first block of each run — an emoji on all 48 cells is noise
   function relabel() {
     var b = blocksFor(cursor, false) || [];
+    var n = notesFor(cursor, false) || {};
     var cells = dayGrid.querySelectorAll('.cell');
     for (var i = 0; i < cells.length; i++) {
       var id = b[i] || null;
+      var col = null;
       if (id && id !== (b[i - 1] || null)) {
         var c = catById(id);
         if (c) {
-          var col = colorOf(c);
+          col = colorOf(c);
           cells[i].innerHTML = '<span class="lab" style="color:' + inkOn(col) + '">' + c.emoji + ' ' + esc(c.name) + '</span>';
-          continue;
         }
       }
-      cells[i].innerHTML = '';
+      if (col === null) cells[i].innerHTML = '';
+      if (id && n[i]) {
+        cells[i].dataset.note = '1';
+        cells[i].style.setProperty('--dot', inkOn(colorOf(catById(id)) || '#000000'));
+        cells[i].title += ' \u00b7 \ud83d\udcdd ' + n[i];
+      } else {
+        delete cells[i].dataset.note;
+      }
+    }
+  }
+
+  // ---- day log: one editable memo per contiguous stretch ----
+  function renderDayLog() {
+    var el = document.getElementById('dayLog');
+    var runs = runsFor(cursor);
+    if (!runs.length) {
+      el.innerHTML = '<p class="note" style="margin:0">Nothing logged on this day yet. ' +
+        'Paint some blocks above and each stretch will appear here with a box for what happened in it.</p>';
+      return;
+    }
+    el.innerHTML = '';
+    runs.forEach(function (r) {
+      var c = catById(r.id);
+      if (!c) return;
+      var note = noteIn(cursor, r);
+
+      var row = document.createElement('div');
+      row.className = 'logrow';
+
+      var t = document.createElement('div');
+      t.className = 't';
+      t.textContent = blockTime(r.start) + '–' + (r.end + 1 >= BLOCKS ? '24:00' : blockTime(r.end + 1));
+
+      var cc = document.createElement('div');
+      cc.className = 'c';
+      cc.innerHTML = '<i style="background:' + colorOf(c) + '"></i><span>' + c.emoji + ' ' + esc(c.name) + '</span>';
+
+      var d = document.createElement('div');
+      d.className = 'd';
+      d.textContent = fmtH(r.mins / 60);
+
+      var inp = document.createElement('input');
+      inp.type = 'text';
+      inp.value = note.text;
+      inp.maxLength = 280;
+      inp.placeholder = 'what happened? (optional)';
+      inp.onchange = function () {
+        setNote(cursor, note.key, inp.value.trim());
+        relabel();
+      };
+
+      row.appendChild(t); row.appendChild(cc); row.appendChild(d); row.appendChild(inp);
+      el.appendChild(row);
+    });
+
+    // notes whose blocks were later erased would otherwise be invisible and unreachable
+    var n = notesFor(cursor, false) || {};
+    var b = blocksFor(cursor, false) || [];
+    var orphans = Object.keys(n).filter(function (k) { return !b[+k]; });
+    if (orphans.length) {
+      var warn = document.createElement('p');
+      warn.className = 'note';
+      warn.style.marginTop = '10px';
+      warn.innerHTML = '<b>' + orphans.length + ' memo' + (orphans.length === 1 ? '' : 's') +
+        ' on blocks you have since cleared:</b> ' +
+        orphans.map(function (k) { return blockTime(+k) + ' \u2014 \u201c' + esc(n[k]) + '\u201d'; }).join(' \u00b7 ') +
+        ' ';
+      var kill = document.createElement('button');
+      kill.className = 'btn sm';
+      kill.textContent = 'Discard them';
+      kill.onclick = function () {
+        orphans.forEach(function (k) { delete n[k]; });
+        save(); renderDayLog(); relabel();
+      };
+      warn.appendChild(kill);
+      el.appendChild(warn);
     }
   }
 
@@ -773,7 +974,7 @@
   function endPaint() {
     if (!painting) return;
     painting = false; save();
-    relabel(); renderDaySummary(); renderTargets('dayTargets', [cursor], 1); renderBanner();
+    relabel(); renderDayLog(); renderDaySummary(); renderTargets('dayTargets', [cursor], 1); renderBanner();
   }
   dayGrid.addEventListener('pointerup', endPaint);
   dayGrid.addEventListener('pointercancel', endPaint);
@@ -846,12 +1047,45 @@
           (tgt > 0 ? '<div class="tick" data-l="' + fmtH(tgt) + '" style="left:' + pctTick + '%"></div>' : '') +
         '</div>' +
         '<div class="val"><b>' + fmtH(h) + '</b><br><span style="color:' + (good ? 'var(--good)' : 'var(--critical)') + '">' + dtxt + '</span></div>' +
+        '<button class="tgtbtn" data-cat="' + c.id + '" title="Change the daily target for ' + esc(c.name) + '">' +
+          '<b>' + fmtH(c.target) + '</b><br>/day</button>' +
       '</div>';
     });
     var un = (t.possible - t.logged) / 60;
     html += '<p class="note" style="margin:10px 0 0">' + fmtH(un) + ' of ' + fmtH(t.possible / 60) +
       ' unlogged. Blank blocks are not zero — they are unknown, and they quietly flatter every number above.</p>';
     el.innerHTML = html;
+    wireTargetButtons(el);
+  }
+
+  // click a target to edit it in place; the value is always the DAILY target, even in
+  // views where the bar is showing a whole week scaled up
+  function wireTargetButtons(el) {
+    el.querySelectorAll('.tgtbtn').forEach(function (btn) {
+      btn.onclick = function () {
+        var c = catById(btn.dataset.cat);
+        if (!c) return;
+        var inp = document.createElement('input');
+        inp.type = 'number'; inp.className = 'tgtin';
+        inp.min = '0'; inp.max = '24'; inp.step = '0.25'; inp.value = c.target;
+        btn.replaceWith(inp);
+        inp.focus(); inp.select();
+        var done = false;
+        function commit() {
+          if (done) return;
+          done = true;
+          var v = Math.max(0, Math.min(24, +inp.value || 0));
+          if (v !== c.target) { c.target = v; save(); }
+          renderAll();
+        }
+        inp.onblur = commit;
+        inp.onkeydown = function (e) {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { done = true; renderAll(); }
+          e.stopPropagation();   // the day view binds 0-9 to category selection
+        };
+      };
+    });
   }
 
   /* ══════════════ WEEK VIEW ══════════════ */
@@ -1043,6 +1277,143 @@
     document.getElementById('insTable').innerHTML = html + '</tbody>';
   }
 
+  /* ══════════════ EXAMPLE (read-only reference week) ══════════════ */
+  // ids deliberately match DEFAULT_CATS so "use these targets" can find the user's
+  // equivalents; anything they renamed or deleted is simply skipped
+  var EX_CATS = [
+    { id: 'sleep',  name: 'Sleep',          emoji: '\ud83d\ude34', slot: 0, kind: 'rest',   target: 8    },
+    { id: 'deep',   name: 'Deep work',      emoji: '\ud83c\udfaf', slot: 1, kind: 'invest', target: 4.5  },
+    { id: 'korean', name: 'Study',          emoji: '\ud83d\udcda', slot: 2, kind: 'invest', target: 1    },
+    { id: 'admin',  name: 'Admin & chores', emoji: '\ud83e\uddfe', slot: 3, kind: 'upkeep', target: 1.5  },
+    { id: 'health', name: 'Health & meals', emoji: '\ud83c\udfc3', slot: 4, kind: 'invest', target: 4    },
+    { id: 'social', name: 'People',         emoji: '\ud83e\udec2', slot: 5, kind: 'invest', target: 1.5  },
+    { id: 'rest',   name: 'Leisure',        emoji: '\ud83c\udfac', slot: 6, kind: 'upkeep', target: 3    },
+    { id: 'drift',  name: 'Scroll & drift', emoji: '\ud83d\udd73', slot: 7, kind: 'leak',   target: 0.5  }
+  ];
+  function exCat(id) { for (var i = 0; i < EX_CATS.length; i++) if (EX_CATS[i].id === id) return EX_CATS[i]; return null; }
+
+  function fromRanges(ranges) {
+    var a = new Array(BLOCKS).fill(null);
+    ranges.forEach(function (r) { for (var i = r[0]; i < r[1]; i++) a[i] = r[2]; });
+    return a;
+  }
+  var EX_WEEKDAY = fromRanges([
+    [0, 14, 'sleep'],    [14, 15, 'admin'],  [15, 17, 'health'], [17, 20, 'deep'],
+    [20, 21, 'rest'],    [21, 24, 'deep'],   [24, 26, 'health'], [26, 28, 'admin'],
+    [28, 31, 'deep'],    [31, 32, 'rest'],   [32, 34, 'korean'], [34, 38, 'health'],
+    [38, 41, 'social'],  [41, 44, 'rest'],   [44, 45, 'drift'],  [45, 46, 'rest'],
+    [46, 48, 'sleep']
+  ]);
+  var EX_WEEKEND = fromRanges([
+    [0, 17, 'sleep'],    [17, 18, 'admin'],  [18, 20, 'health'], [20, 23, 'admin'],
+    [23, 25, 'korean'],  [25, 27, 'health'], [27, 31, 'social'], [31, 34, 'rest'],
+    [34, 38, 'health'],  [38, 42, 'social'], [42, 45, 'rest'],   [45, 46, 'drift'],
+    [46, 48, 'sleep']
+  ]);
+  var EX_WEEK = [EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKEND, EX_WEEKEND];
+  var EX_DAYNAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+
+  function exTotals(arr) {
+    var t = {};
+    EX_CATS.forEach(function (c) { t[c.id] = 0; });
+    arr.forEach(function (id) { if (id && t.hasOwnProperty(id)) t[id] += MIN; });
+    return t;
+  }
+
+  function renderExample() {
+    // ---- tiles ----
+    var wd = exTotals(EX_WEEKDAY), we = exTotals(EX_WEEKEND);
+    function weekly(id) { return (wd[id] * 5 + we[id] * 2) / 60; }
+    var invest = 0, leak = 0;
+    EX_CATS.forEach(function (c) {
+      if (c.kind === 'invest') invest += weekly(c.id);
+      if (c.kind === 'leak') leak += weekly(c.id);
+    });
+    document.getElementById('exTiles').innerHTML = [
+      tile('Sleep', fmtH(weekly('sleep') / 7), 'avg night \u2014 8h weekday, 9\u00bdh weekend', ''),
+      tile('Deep work', fmtH(weekly('deep')), 'a week \u2014 ' + fmtH(wd.deep / 60) + ' per weekday', ''),
+      tile('Invested', fmtH(invest), 'a week across all invest kinds', ''),
+      tile('Leak budget', fmtH(leak), 'deliberately not zero', ''),
+      tile('Longest focus run', '1h 30m', 'three of them per weekday', '')
+    ].join('');
+
+    // ---- week heatmap ----
+    var html = '<div></div>';
+    EX_DAYNAMES.forEach(function (d, i) {
+      html += '<div class="hd"><b>' + d + '</b>' + (i > 4 ? 'wknd' : 'wkdy') + '</div>';
+    });
+    for (var h = 0; h < 24; h++) {
+      html += '<div class="hr">' + (h % 3 === 0 ? String(h).padStart(2, '0') : '') + '</div>';
+      for (var k = 0; k < 7; k++) {
+        html += '<div class="wcell">';
+        for (var sIdx = 0; sIdx < 2; sIdx++) {
+          var id = EX_WEEK[k][h * 2 + sIdx];
+          var c = id ? exCat(id) : null;
+          html += '<i data-filled="' + (c ? 1 : 0) + '"' + (c ? ' style="background:' + colorOf(c) + '"' : '') + '></i>';
+        }
+        html += '</div>';
+      }
+    }
+    document.getElementById('exWeek').innerHTML = html;
+    document.getElementById('exLegend').innerHTML = EX_CATS.map(function (c) {
+      return '<span><i style="background:' + colorOf(c) + '"></i>' + c.emoji + ' ' + esc(c.name) + '</span>';
+    }).join('');
+
+    // ---- the weekday, hour by hour ----
+    var dh = '';
+    for (var hh = 0; hh < 24; hh++) {
+      dh += '<div class="hourrow"><div class="hourlab">' + String(hh).padStart(2, '0') + ':00</div>';
+      for (var kk = 0; kk < 2; kk++) {
+        var bi = hh * 2 + kk, eid = EX_WEEKDAY[bi], ec = eid ? exCat(eid) : null;
+        var lab = '';
+        if (ec && eid !== EX_WEEKDAY[bi - 1]) {
+          lab = '<span class="lab" style="color:' + inkOn(colorOf(ec)) + '">' + ec.emoji + ' ' + esc(ec.name) + '</span>';
+        }
+        dh += '<div class="cell" data-filled="' + (ec ? 1 : 0) + '"' +
+              (ec ? ' style="background:' + colorOf(ec) + '"' : '') + '>' + lab + '</div>';
+      }
+      dh += '</div>';
+    }
+    document.getElementById('exDay').innerHTML = dh;
+
+    // ---- the numbers ----
+    var rows = EX_CATS.slice().sort(function (a, b) { return weekly(b.id) - weekly(a.id); });
+    var th = '<thead><tr><th>Category</th><th>Kind</th><th class="n">Weekday</th>' +
+             '<th class="n">Weekend</th><th class="n">Week</th></tr></thead><tbody>';
+    rows.forEach(function (c) {
+      th += '<tr><td><i class="sw" style="background:' + colorOf(c) + '"></i>' + c.emoji + ' ' + esc(c.name) + '</td>' +
+        '<td><span class="kind">' + c.kind + '</span></td>' +
+        '<td class="n">' + fmtH(wd[c.id] / 60) + '</td>' +
+        '<td class="n">' + fmtH(we[c.id] / 60) + '</td>' +
+        '<td class="n">' + fmtH(weekly(c.id)) + '</td></tr>';
+    });
+    document.getElementById('exTable').innerHTML = th + '</tbody>';
+  }
+
+  document.getElementById('exApply').onclick = function () {
+    var hits = [], missing = [];
+    EX_CATS.forEach(function (ec) {
+      var mine = catById(ec.id);
+      if (mine) hits.push(mine.name); else missing.push(ec.name);
+    });
+    if (!hits.length) {
+      alert('None of your categories line up with the example ones, so there is nothing to copy. ' +
+            'The match is by internal id, which renaming preserves but deleting and re-adding does not.');
+      return;
+    }
+    if (!confirm('Set the daily target on ' + hits.length + ' categor' + (hits.length === 1 ? 'y' : 'ies') +
+                 ' to the example values?\n\n' + hits.join(', ') +
+                 (missing.length ? '\n\nNo match for: ' + missing.join(', ') : '') +
+                 '\n\nThis changes targets only. None of your logged time is touched.')) return;
+    EX_CATS.forEach(function (ec) {
+      var mine = catById(ec.id);
+      if (mine) mine.target = ec.target;
+    });
+    save(); renderAll();
+    document.getElementById('exApplyNote').textContent =
+      'Applied to ' + hits.length + ' categories.' + (missing.length ? ' ' + missing.length + ' had no match.' : '');
+  };
+
   /* ══════════════ SETUP ══════════════ */
   function renderSetup() {
     var el = document.getElementById('catList');
@@ -1181,17 +1552,13 @@
     setTimeout(function () { b.textContent = '\ud83d\udcbe'; }, 1400);
   }
   document.getElementById('expCsv').onclick = function () {
-    var rows = [['date', 'start', 'end', 'category', 'kind', 'minutes']];
+    var rows = [['date', 'start', 'end', 'category', 'kind', 'minutes', 'memo']];
     Object.keys(state.days).sort().forEach(function (d) {
-      var b = state.days[d].b || [], i = 0;
-      while (i < BLOCKS) {
-        if (!b[i]) { i++; continue; }
-        var j = i; while (j + 1 < BLOCKS && b[j + 1] === b[i]) j++;
-        var c = catById(b[i]);
-        rows.push([d, blockTime(i), j + 1 >= BLOCKS ? '24:00' : blockTime(j + 1),
-          c ? c.name : b[i], c ? c.kind : '', (j - i + 1) * MIN]);
-        i = j + 1;
-      }
+      runsFor(d).forEach(function (r) {
+        var c = catById(r.id);
+        rows.push([d, blockTime(r.start), r.end + 1 >= BLOCKS ? '24:00' : blockTime(r.end + 1),
+          c ? c.name : r.id, c ? c.kind : '', r.mins, noteIn(d, r).text]);
+      });
     });
     download('time-tracker-' + todayISO() + '.csv',
       rows.map(function (r) { return r.map(function (x) { return /[",]/.test(x) ? '"' + String(x).replace(/"/g, '""') + '"' : x; }).join(','); }).join('\n'),
@@ -1224,7 +1591,7 @@
   /* ══════════════ views & theme ══════════════ */
   function setView(v) {
     view = v;
-    ['day', 'week', 'insights', 'setup'].forEach(function (k) {
+    ['day', 'week', 'insights', 'example', 'setup'].forEach(function (k) {
       document.getElementById('v-' + k).hidden = k !== v;
     });
     document.querySelectorAll('.tabs button').forEach(function (b) {
@@ -1233,6 +1600,7 @@
     if (v === 'day') renderDay();
     if (v === 'week') renderWeek();
     if (v === 'insights') renderInsights();
+    if (v === 'example') renderExample();
     if (v === 'setup') renderSetup();
   }
   document.querySelectorAll('.tabs button').forEach(function (b) {
@@ -1255,6 +1623,7 @@
     if (view === 'day') renderDay();
     else if (view === 'week') renderWeek();
     else if (view === 'insights') renderInsights();
+    else if (view === 'example') renderExample();
     else renderSetup();
   }
 

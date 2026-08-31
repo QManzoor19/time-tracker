@@ -31,6 +31,10 @@ blocks you just lived.
 | `←` `→` | previous / next day |
 | `⌘Z` / `Ctrl+Z` | undo |
 
+After a stretch is painted it shows up in the **Day log** beneath the grid — one row per
+contiguous run, with a box for a line about what actually happened in it. Blocks carrying a
+memo get a dot in the grid, and memos travel in the CSV export.
+
 This is deliberately **not** a live start/stop timer and **not** an end-of-day journal.
 Timers get abandoned the first time you forget to hit stop, and whole-day recall
 reliably hides exactly the time you most want to see. The intended rhythm is three
@@ -65,6 +69,18 @@ the colours stop pulling their weight.
 
 Text drawn on a category — the labels in the day grid — picks black or white by measured
 contrast against the fill, so a colour you invent still gets a legible label.
+
+## Targets
+
+Set them in **Setup**, or click any target directly on a bar in Day / Week / Insights — the
+value you edit is always the *daily* target, even where the bar is showing a scaled-up week.
+
+The **Example** tab holds a read-only reference week: an hour-by-hour weekday, a
+differently-shaped weekend, and what the two add up to. It is one defensible shape rather
+than a prescription, and the parts worth copying are structural — a fixed sleep window,
+deep work early and in 90-minute blocks, a leak budget that is deliberately non-zero, and a
+weekend that is not just a weekday with worse numbers. One button copies its targets onto
+your own categories; it touches targets only, never logged time.
 
 ## What it computes
 
