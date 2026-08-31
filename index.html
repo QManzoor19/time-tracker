@@ -115,6 +115,9 @@
     position: relative; overflow: hidden; text-align: left;
   }
   .cell[data-filled="1"] { box-shadow: none; }
+  /* a piece of a slot that was cut finer than the paint step */
+  .cell.split { box-shadow: inset 1px 0 0 var(--surface-1), inset -1px 0 0 var(--surface-1); }
+  .cell.split[data-filled="0"] { box-shadow: inset 0 0 0 1px var(--grid); }
   .cell .lab {
     display: block; font-size: 10.5px; font-weight: 600; padding: 0 6px; line-height: 26px;
     white-space: nowrap; overflow: hidden; text-overflow: ellipsis; pointer-events: none;
@@ -337,7 +340,7 @@
           <button data-l="main" aria-pressed="true">Main</button>
           <button data-l="g" aria-pressed="false">＋ Alongside</button>
         </div>
-        <div class="layerpick" id="resPickDay" title="How finely the day is cut"></div>
+        <div class="layerpick" id="resPickDay" title="How much one click paints"></div>
       </div>
       <p class="note" id="layerHint" style="margin:8px 0 0"></p>
       <div class="row" style="margin-top:10px">
@@ -499,19 +502,21 @@
     </div>
 
     <div class="card">
-      <div class="card-head"><h2>Block size</h2><div class="sub" id="resNote"></div></div>
+      <div class="card-head"><h2>Smallest unit</h2><div class="sub" id="resNote"></div></div>
       <div class="row" id="resPick"></div>
       <p class="note" style="margin-top:14px">
-        How finely the day is cut. <b>30 minutes</b> is 48 blocks and the fastest to paint;
-        <b>10 minutes</b> is 144 and lets you record short things honestly, at the cost of a much
-        longer grid and more dragging.<br><br>
-        Changing this rewrites every day you have already logged. Going <b>finer</b> is lossless —
-        each block simply splits. Going <b>coarser</b> is not: where a new larger block covers
-        several old ones, it keeps whichever category held the most of it and the rest is
-        discarded. Memos move to the block containing their old start; two memos landing in the
-        same block are joined rather than dropped.<br><br>
-        The week heatmap always draws at half-hour granularity whatever you pick here — at
-        10 minutes it would otherwise be 42 unreadable slivers per row.
+        This is the <b>finest slice the day can be cut into</b> — not how much you paint at once.
+        That is the step control above the grid on the Day view, which defaults to 30 minutes.
+        With a 15-minute unit and a 30-minute step, the grid looks like half-hour blocks, and any
+        one of them can be cut in half when a half-hour genuinely held two things.<br><br>
+        Only lower this if 15 minutes is not fine enough. A 10-minute unit gives 144 blocks a day
+        and lets you paint in 10, 20 or 30-minute steps, at the cost of a busier grid.<br><br>
+        Changing it rewrites every day you have logged. Going <b>finer</b> is lossless — each
+        block simply splits. Going <b>coarser</b> is not: where a larger block covers several old
+        ones it keeps whichever category held most of it and discards the rest. Memos move to the
+        block containing their old start; two landing in the same block are joined, not dropped.<br><br>
+        The week heatmap always draws at half-hour granularity whatever you pick, since finer
+        units would make it dozens of unreadable slivers per row.
       </p>
     </div>
 
@@ -595,11 +600,40 @@
   var LS = 'timeTracker.v1', LSTHEME = 'timeTracker.theme';
   var RESOLUTIONS = [30, 15, 10];
   var MIN = 30, BLOCKS = 48, PER_HOUR = 2;   // recomputed by applyResolution()
+  var STEP = 30;   // how much clock time one click paints; a multiple of MIN
+  function stepOptions() {
+    return [10, 15, 20, 30, 60].filter(function (x) { return x % MIN === 0 && x >= MIN; });
+  }
+  function stepBlocks() { return Math.max(1, Math.round(STEP / MIN)); }
   function applyResolution() {
     MIN = state.settings && state.settings.blockMin ? state.settings.blockMin : 30;
     if (RESOLUTIONS.indexOf(MIN) < 0) MIN = 30;
     BLOCKS = 1440 / MIN;
     PER_HOUR = 60 / MIN;
+    STEP = (state.settings && state.settings.paintStep) || 30;
+    var opts = stepOptions();
+    if (opts.indexOf(STEP) < 0) STEP = opts.indexOf(30) > -1 ? 30 : opts[0];
+  }
+
+  // A one-time, strictly lossless upgrade. 30-minute storage cannot represent a slot
+  // split in half, so the base drops to 15 while painting stays at 30 — the grid looks
+  // identical, but a slot can now be cut when needed. Refining never loses anything
+  // (each block simply splits), and a base the user deliberately made finer is left alone.
+  function upgradeToSplittable() {
+    if (state.settings.splitReady) return;
+    state.settings.splitReady = true;
+    if (state.settings.blockMin === 30) {
+      Object.keys(state.days).forEach(function (d) {
+        var day = state.days[d];
+        var fromLen = day.b ? day.b.length : 48;
+        if (day.n) day.n = remapNotes(day.n, fromLen, 96);
+        if (day.b) day.b = resampleArr(day.b, 96);
+        if (day.g) day.g = resampleArr(day.g, 96);
+      });
+      state.settings.blockMin = 15;
+    }
+    if (!state.settings.paintStep) state.settings.paintStep = 30;
+    save();
   }
 
   // resample a day array onto a different block count, keeping the category that
@@ -662,10 +696,12 @@
         raw.cats.forEach(function (c) { if (typeof c.slot !== 'number') c.slot = 0; });
         if (!raw.settings) raw.settings = { blockMin: 30 };
         if (RESOLUTIONS.indexOf(raw.settings.blockMin) < 0) raw.settings.blockMin = 30;
+        if (!raw.settings.paintStep) raw.settings.paintStep = 30;
         return raw;
       }
     } catch (e) {}
-    return { cats: JSON.parse(JSON.stringify(DEFAULT_CATS)), days: {}, settings: { blockMin: 30 } };
+    return { cats: JSON.parse(JSON.stringify(DEFAULT_CATS)), days: {},
+             settings: { blockMin: 15, paintStep: 30, splitReady: true } };
   }
   function save() {
     try { localStorage.setItem(LS, JSON.stringify(state)); }
@@ -875,13 +911,28 @@
       lab.textContent = String(h).padStart(2, '0') + ':00';
       row.appendChild(lab);
       row.style.setProperty('--ph', PER_HOUR);
-      for (var k = 0; k < PER_HOUR; k++) {
-        var i = h * PER_HOUR + k;
-        var cell = document.createElement('button');
-        cell.className = 'cell' + (isToday && i > nb ? ' future' : '');
-        cell.dataset.i = i;
-        paintCell(cell, i);
-        row.appendChild(cell);
+      var g = bgFor(cursor, false) || [];
+      var sb = stepBlocks(), i = h * PER_HOUR, rowEnd = i + PER_HOUR;
+      while (i < rowEnd) {
+        var win = Math.min(sb, rowEnd - i);
+        // a step window draws as one cell while its sub-blocks agree, and falls apart
+        // into its pieces the moment they do not — a split is never hidden
+        var uniform = true;
+        for (var q = 1; q < win; q++) {
+          if (b[i + q] !== b[i] || (g[i + q] || null) !== (g[i] || null)) { uniform = false; break; }
+        }
+        var pieces = uniform ? [[i, win]] : [];
+        if (!uniform) for (var q2 = 0; q2 < win; q2++) pieces.push([i + q2, 1]);
+        pieces.forEach(function (pc) {
+          var cell = document.createElement('button');
+          cell.className = 'cell' + (isToday && pc[0] > nb ? ' future' : '') + (pc[1] < sb ? ' split' : '');
+          cell.dataset.i = pc[0];
+          cell.dataset.n = pc[1];
+          cell.style.gridColumn = 'span ' + pc[1];
+          paintCell(cell, pc[0]);
+          row.appendChild(cell);
+        });
+        i += win;
       }
       dayGrid.appendChild(row);
     }
@@ -943,15 +994,19 @@
     var b = blocksFor(cursor, false) || [];
     var n = notesFor(cursor, false) || {};
     var cells = dayGrid.querySelectorAll('.cell');
-    for (var i = 0; i < cells.length; i++) {
-      var id = b[i] || null;
-      cells[i].innerHTML = cellHTML(i, true);
-      if (id && n[i]) {
-        cells[i].dataset.note = '1';
-        cells[i].style.setProperty('--dot', inkOn(colorOf(catById(id)) || '#000000'));
-        cells[i].title += ' \u00b7 \ud83d\udcdd ' + n[i];
+    for (var c = 0; c < cells.length; c++) {
+      var cell = cells[c];
+      var i = +cell.dataset.i, span = +cell.dataset.n || 1;
+      cell.innerHTML = cellHTML(i, true);
+      // a memo anywhere under a merged cell still needs to show on it
+      var memo = null;
+      for (var k = i; k < i + span; k++) { if (b[k] && n[k]) { memo = n[k]; break; } }
+      if (memo) {
+        cell.dataset.note = '1';
+        cell.style.setProperty('--dot', inkOn(colorOf(catById(b[i])) || '#000000'));
+        cell.title += ' \u00b7 \ud83d\udcdd ' + memo;
       } else {
-        delete cells[i].dataset.note;
+        delete cell.dataset.note;
       }
     }
   }
@@ -1139,13 +1194,24 @@
   /* --- painting interaction (mouse + touch via pointer events) --- */
   var painting = false, paintValue = null;
 
+  // a click always writes one whole step window, aligned to the step grid — so painting
+  // at 30 minutes over a slot someone had split simply merges it back
   function applyTo(cell) {
     if (!cell || !cell.classList.contains('cell')) return;
-    var i = +cell.dataset.i;
+    var sb = stepBlocks();
+    var w0 = Math.floor(+cell.dataset.i / sb) * sb;
     var arr = layerArr(true);
-    if (arr[i] === paintValue) return;
-    arr[i] = paintValue;
-    paintCell(cell, i);
+    var changed = false;
+    for (var k = w0; k < w0 + sb && k < BLOCKS; k++) {
+      if (arr[k] !== paintValue) { arr[k] = paintValue; changed = true; }
+    }
+    if (!changed) return;
+    // repaint colours in place; the merge structure is rebuilt once the stroke ends
+    var cells = dayGrid.querySelectorAll('.cell');
+    for (var c = 0; c < cells.length; c++) {
+      var ci = +cells[c].dataset.i;
+      if (ci >= w0 && ci < w0 + sb) paintCell(cells[c], ci);
+    }
   }
   function cellAt(x, y) {
     var el = document.elementFromPoint(x, y);
@@ -1203,7 +1269,7 @@
   function endPaint() {
     if (!painting) return;
     painting = false; save();
-    relabel(); renderDayLog(); renderDaySummary(); renderTargets('dayTargets', [cursor], 1); renderBanner();
+    renderDay();   // merges may have changed shape, so rebuild rather than relabel
   }
   dayGrid.addEventListener('pointerup', endPaint);
   dayGrid.addEventListener('pointercancel', endPaint);
@@ -1216,20 +1282,34 @@
     });
     var rp = document.getElementById('resPickDay');
     rp.innerHTML = '';
-    RESOLUTIONS.forEach(function (m) {
+    stepOptions().forEach(function (m) {
       var b = document.createElement('button');
-      b.textContent = m + 'm';
-      b.setAttribute('aria-pressed', String(m === MIN));
-      b.onclick = function () { setResolution(m); };
+      b.textContent = m === 60 ? '1h' : m + 'm';
+      b.setAttribute('aria-pressed', String(m === STEP));
+      b.title = 'Paint ' + (m === 60 ? 'an hour' : m + ' minutes') + ' at a time';
+      b.onclick = function () { setStep(m); };
       rp.appendChild(b);
     });
-    document.getElementById('layerHint').textContent = paintLayer === 'g'
-      ? 'Painting the background layer \u2014 something running alongside the main activity. It gets full credit for the same clock time, so totals can pass 24h.'
-      : 'Painting the main activity for each block.';
+    var stepTxt = STEP === 60 ? 'an hour' : STEP + ' minutes';
+    var finer = stepOptions().filter(function (m) { return m < STEP; });
+    document.getElementById('layerHint').textContent =
+      (paintLayer === 'g'
+        ? 'Painting the background layer \u2014 something running alongside the main activity. It gets full credit for the same clock time, so totals can pass 24h. '
+        : 'Each click paints ' + stepTxt + '. ') +
+      (finer.length
+        ? 'To cut a slot finer, switch to ' + finer[finer.length - 1] + 'm and paint just the part you mean; the slot splits and stays split.'
+        : 'This is the finest step your block size allows \u2014 Setup can take it lower.');
   }
   document.querySelectorAll('#layerPick button').forEach(function (b) {
     b.onclick = function () { paintLayer = b.dataset.l; renderLayerPick(); };
   });
+
+  function setStep(m) {
+    state.settings.paintStep = m;
+    applyResolution();
+    save();
+    renderDay();
+  }
 
   document.getElementById('prevDay').onclick = function () { cursor = addDays(cursor, -1); undoStack = []; redoStack = []; renderDay(); };
   document.getElementById('nextDay').onclick = function () { if (cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; redoStack = []; renderDay(); } };
@@ -1938,7 +2018,8 @@
       b.onclick = function () { setResolution(m); };
       el.appendChild(b);
     });
-    document.getElementById('resNote').textContent = BLOCKS + ' blocks a day, ' + MIN + ' minutes each';
+    document.getElementById('resNote').textContent =
+      BLOCKS + ' blocks a day of ' + MIN + ' min \u00b7 painting in ' + (STEP === 60 ? '1h' : STEP + ' min') + ' steps';
   }
 
   function setResolution(newMin) {
@@ -2094,6 +2175,8 @@
     else renderSetup();
   }
 
+  applyResolution();
+  upgradeToSplittable();
   applyResolution();
   renderAll();
 })();

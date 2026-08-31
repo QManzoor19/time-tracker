@@ -23,11 +23,20 @@ Two questions, and it is built around only these two:
 
 You **paint** the day. Pick a category, then click or drag across the blocks you just lived.
 
-**Block size** is 30, 15 or 10 minutes (48, 96 or 144 blocks a day), switchable from the
-Day view or from Setup.
-Changing it rewrites your existing days: going finer is lossless, going coarser keeps
+**Half-hour blocks that split when you need them.** Two separate settings do this:
+
+- the **smallest unit** (Setup) is the finest the day can be cut — 15 minutes by default
+- the **paint step** (above the grid) is how much one click fills — 30 minutes by default
+
+So the grid reads as half-hour blocks, but any one of them can be cut in half when a half
+hour genuinely held two things. To split one, switch the step to `15m` and paint just the
+part you mean; the slot splits and stays split, and the step goes back to `30m` afterwards.
+A cell draws as one block while its halves agree and falls apart into its pieces the moment
+they don't, so a split is never hidden. Painting at 30 over a split slot merges it back.
+
+Lowering the smallest unit rewrites your existing days: finer is lossless, coarser keeps
 whichever category held most of each new block and discards the rest. The week heatmap
-always draws at half-hour granularity regardless, because 10-minute blocks would be 42
+always draws at half-hour granularity regardless, since finer units would be dozens of
 unreadable slivers per row.
 
 **Two layers.** Each block has a *main* activity and an optional *alongside* one, toggled
