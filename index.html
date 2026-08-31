@@ -107,7 +107,7 @@
 
   /* ---------- day grid ---------- */
   .daygrid { display: flex; flex-direction: column; gap: 2px; touch-action: pan-y; user-select: none; }
-  .hourrow { display: grid; grid-template-columns: 46px 1fr 1fr; gap: 2px; align-items: stretch; }
+  .hourrow { display: grid; grid-template-columns: 46px repeat(var(--ph, 2), 1fr); gap: 2px; align-items: stretch; }
   .hourlab { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; display: flex; align-items: center; }
   .cell {
     height: 22px; border-radius: 3px; border: 0; padding: 0;
@@ -213,6 +213,16 @@
     .logrow > :nth-child(1) { grid-area: t; } .logrow > :nth-child(2) { grid-area: c; }
     .logrow > :nth-child(3) { grid-area: d; } .logrow > :nth-child(4) { grid-area: n; }
   }
+  .cell[data-along="1"]::before {
+    content: ""; position: absolute; left: 0; right: 0; bottom: 0; height: 5px;
+    background: var(--alongc); border-radius: 0 0 3px 3px;
+  }
+  .layerpick { display: inline-flex; gap: 2px; background: var(--plane); border: 1px solid var(--border); border-radius: 9px; padding: 3px; }
+  .layerpick button { border: 0; background: transparent; border-radius: 6px; padding: 5px 11px; font-size: 12.5px; font-weight: 550; color: var(--text-secondary); }
+  .layerpick button[aria-pressed="true"] { background: var(--surface-1); color: var(--text-primary); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .logrow.along .c span { color: var(--text-secondary); }
+  .logrow.along .t { opacity: .8; }
+  .subhead { font-size: 11px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; margin: 14px 0 2px; }
   .cell[data-note="1"]::after {
     content: ""; position: absolute; right: 4px; top: 4px;
     width: 4px; height: 4px; border-radius: 50%; background: var(--dot, #fff); opacity: .9;
@@ -257,7 +267,7 @@
     .tabs button { padding: 6px 9px; font-size: 12px; }
     .brand small { display: none; }
     .tbar { grid-template-columns: 88px 1fr 58px 52px; gap: 7px; }
-    .hourrow { grid-template-columns: 38px 1fr 1fr; }
+    .hourrow { grid-template-columns: 38px repeat(var(--ph, 2), 1fr); }
   }
 </style>
 
@@ -294,7 +304,14 @@
       </div>
 
       <div class="palette" id="palette"></div>
-      <div class="row" style="margin-top:12px">
+      <div class="row" style="margin-top:10px">
+        <div class="layerpick" id="layerPick">
+          <button data-l="main" aria-pressed="true">Main</button>
+          <button data-l="g" aria-pressed="false">＋ Alongside</button>
+        </div>
+        <span class="note" id="layerHint"></span>
+      </div>
+      <div class="row" style="margin-top:10px">
         <button class="btn sm" id="fillNow">⏩ Fill gap → now</button>
         <button class="btn sm" id="repeatYday">📋 Copy yesterday</button>
         <button class="btn sm" id="undoBtn" disabled>↶ Undo</button>
@@ -452,6 +469,23 @@
     </div>
 
     <div class="card">
+      <div class="card-head"><h2>Block size</h2><div class="sub" id="resNote"></div></div>
+      <div class="row" id="resPick"></div>
+      <p class="note" style="margin-top:14px">
+        How finely the day is cut. <b>30 minutes</b> is 48 blocks and the fastest to paint;
+        <b>10 minutes</b> is 144 and lets you record short things honestly, at the cost of a much
+        longer grid and more dragging.<br><br>
+        Changing this rewrites every day you have already logged. Going <b>finer</b> is lossless —
+        each block simply splits. Going <b>coarser</b> is not: where a new larger block covers
+        several old ones, it keeps whichever category held the most of it and the rest is
+        discarded. Memos move to the block containing their old start; two memos landing in the
+        same block are joined rather than dropped.<br><br>
+        The week heatmap always draws at half-hour granularity whatever you pick here — at
+        10 minutes it would otherwise be 42 unreadable slivers per row.
+      </p>
+    </div>
+
+    <div class="card">
       <div class="card-head"><h2>Your data</h2><div class="sub" id="dataSize"></div></div>
       <p class="note" style="margin:0 0 12px">Everything lives in this browser's localStorage — nothing leaves your machine. Export monthly so a cleared cache can't take it.</p>
       <div class="row">
@@ -512,7 +546,58 @@
 
   var KINDS = ['invest', 'rest', 'upkeep', 'leak'];
   var LS = 'timeTracker.v1', LSTHEME = 'timeTracker.theme';
-  var BLOCKS = 48, MIN = 30;
+  var RESOLUTIONS = [30, 15, 10];
+  var MIN = 30, BLOCKS = 48, PER_HOUR = 2;   // recomputed by applyResolution()
+  function applyResolution() {
+    MIN = state.settings && state.settings.blockMin ? state.settings.blockMin : 30;
+    if (RESOLUTIONS.indexOf(MIN) < 0) MIN = 30;
+    BLOCKS = 1440 / MIN;
+    PER_HOUR = 60 / MIN;
+  }
+
+  // resample a day array onto a different block count, keeping the category that
+  // occupies most of each new block. Used both by the Setup switch and as a repair
+  // path for any day still stored at an older resolution.
+  function resampleArr(arr, toLen) {
+    var fromMin = 1440 / arr.length, toMin = 1440 / toLen;
+    var out = new Array(toLen).fill(null);
+    for (var i = 0; i < toLen; i++) {
+      var s0 = i * toMin, e0 = s0 + toMin, tally = {}, best = null, bestv = 0;
+      var jStart = Math.floor(s0 / fromMin), jEnd = Math.ceil(e0 / fromMin);
+      for (var j = jStart; j < jEnd && j < arr.length; j++) {
+        if (!arr[j]) continue;
+        var ov = Math.min(e0, (j + 1) * fromMin) - Math.max(s0, j * fromMin);
+        if (ov <= 0) continue;
+        tally[arr[j]] = (tally[arr[j]] || 0) + ov;
+        if (tally[arr[j]] > bestv) { bestv = tally[arr[j]]; best = arr[j]; }
+      }
+      out[i] = best;
+    }
+    return out;
+  }
+  // which category owns most of a clock window — the week heatmap always draws at
+  // half-hour granularity, whatever the logging resolution, or 10-minute blocks would
+  // make 42 unreadable slivers per row
+  function dominantIn(arr, startMin, endMin) {
+    var bm = 1440 / arr.length, tally = {}, best = null, bestv = 0;
+    for (var j = Math.floor(startMin / bm); j < Math.ceil(endMin / bm) && j < arr.length; j++) {
+      if (!arr[j]) continue;
+      var ov = Math.min(endMin, (j + 1) * bm) - Math.max(startMin, j * bm);
+      if (ov <= 0) continue;
+      tally[arr[j]] = (tally[arr[j]] || 0) + ov;
+      if (tally[arr[j]] > bestv) { bestv = tally[arr[j]]; best = arr[j]; }
+    }
+    return best;
+  }
+  function remapNotes(notes, fromLen, toLen) {
+    if (!notes) return notes;
+    var fromMin = 1440 / fromLen, toMin = 1440 / toLen, out = {};
+    Object.keys(notes).forEach(function (k) {
+      var ni = Math.min(toLen - 1, Math.floor(+k * fromMin / toMin));
+      out[ni] = out[ni] ? out[ni] + ' \u00b7 ' + notes[k] : notes[k];
+    });
+    return out;
+  }
 
   /* ══════════════ state ══════════════ */
   var state = load();
@@ -520,6 +605,7 @@
   var cursor = todayISO();      // day view date
   var weekCursor = todayISO();  // week view anchor
   var paintCat = state.cats[1] ? state.cats[1].id : '';
+  var paintLayer = 'main';   // 'main' | 'g' (alongside)
   var undoStack = [];
 
   function load() {
@@ -527,10 +613,12 @@
       var raw = JSON.parse(localStorage.getItem(LS) || 'null');
       if (raw && raw.cats && raw.days) {
         raw.cats.forEach(function (c) { if (typeof c.slot !== 'number') c.slot = 0; });
+        if (!raw.settings) raw.settings = { blockMin: 30 };
+        if (RESOLUTIONS.indexOf(raw.settings.blockMin) < 0) raw.settings.blockMin = 30;
         return raw;
       }
     } catch (e) {}
-    return { cats: JSON.parse(JSON.stringify(DEFAULT_CATS)), days: {} };
+    return { cats: JSON.parse(JSON.stringify(DEFAULT_CATS)), days: {}, settings: { blockMin: 30 } };
   }
   function save() {
     try { localStorage.setItem(LS, JSON.stringify(state)); }
@@ -553,8 +641,11 @@
       ? { weekday: 'long', day: 'numeric', month: 'long' }
       : { weekday: 'short', day: 'numeric', month: 'short' });
   }
-  function blockTime(i) { return String(Math.floor(i / 2)).padStart(2, '0') + ':' + (i % 2 ? '30' : '00'); }
-  function nowBlock() { var d = new Date(); return d.getHours() * 2 + (d.getMinutes() >= 30 ? 1 : 0); }
+  function blockTime(i) {
+    var m = i * MIN;
+    return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
+  }
+  function nowBlock() { var d = new Date(); return Math.floor((d.getHours() * 60 + d.getMinutes()) / MIN); }
   function fmtH(h) {
     if (!h) return '0h';
     var hh = Math.floor(h + 1e-9), mm = Math.round((h - hh) * 60);
@@ -566,9 +657,27 @@
   function blocksFor(day, create) {
     var d = state.days[day];
     if (!d) { if (!create) return null; d = state.days[day] = { b: new Array(BLOCKS).fill(null) }; }
-    if (!d.b || d.b.length !== BLOCKS) d.b = new Array(BLOCKS).fill(null);
+    if (!d.b) d.b = new Array(BLOCKS).fill(null);
+    else if (d.b.length !== BLOCKS) {
+      // a day left at an older resolution: resample rather than discard it
+      d.n = remapNotes(d.n, d.b.length, BLOCKS);
+      if (d.g) d.g = resampleArr(d.g, BLOCKS);
+      d.b = resampleArr(d.b, BLOCKS);
+    }
     return d.b;
   }
+  // the "alongside" layer: a second category running in parallel with the main one
+  function bgFor(day, create) {
+    var d = state.days[day];
+    if (!d) { if (!create) return null; d = state.days[day] = { b: new Array(BLOCKS).fill(null) }; }
+    if (!d.g) { if (!create) return null; d.g = new Array(BLOCKS).fill(null); }
+    else if (d.g.length !== BLOCKS) d.g = resampleArr(d.g, BLOCKS);
+    return d.g;
+  }
+  function layerArr(create) {
+    return paintLayer === 'g' ? bgFor(cursor, create) : blocksFor(cursor, create);
+  }
+
   function notesFor(day, create) {
     var d = state.days[day];
     if (!d) { if (!create) return null; d = state.days[day] = { b: new Array(BLOCKS).fill(null) }; }
@@ -576,8 +685,8 @@
     return d.n;
   }
   // contiguous stretches of the same category
-  function runsFor(day) {
-    var b = blocksFor(day, false);
+  function runsFor(day, layer) {
+    var b = layer === 'g' ? bgFor(day, false) : blocksFor(day, false);
     if (!b) return [];
     var out = [], i = 0;
     while (i < BLOCKS) {
@@ -642,16 +751,21 @@
   function colorFor(id) { var c = catById(id); return c ? colorOf(c) : 'transparent'; }
 
   // minutes per category across a set of days
+  // per-category time credits BOTH layers, so the totals can exceed the clock.
+  // `logged` stays main-layer only — it is what coverage and "unlogged" are measured
+  // against, and parallel time must not be able to fake a fully accounted-for day.
   function totals(days) {
-    var t = {}, logged = 0, possible = 0;
+    var t = {}, logged = 0, possible = 0, along = 0;
     state.cats.forEach(function (c) { t[c.id] = 0; });
     days.forEach(function (day) {
-      var b = blocksFor(day, false);
+      var b = blocksFor(day, false), g = bgFor(day, false);
       possible += BLOCKS * MIN;
-      if (!b) return;
-      for (var i = 0; i < BLOCKS; i++) if (b[i] && t.hasOwnProperty(b[i])) { t[b[i]] += MIN; logged += MIN; }
+      for (var i = 0; i < BLOCKS; i++) {
+        if (b && b[i] && t.hasOwnProperty(b[i])) { t[b[i]] += MIN; logged += MIN; }
+        if (g && g[i] && t.hasOwnProperty(g[i])) { t[g[i]] += MIN; along += MIN; }
+      }
     });
-    return { per: t, logged: logged, possible: possible };
+    return { per: t, logged: logged, possible: possible, along: along };
   }
   function kindTotal(per, kind) {
     var s = 0;
@@ -708,22 +822,24 @@
     dayGrid.innerHTML = '';
     for (var h = 0; h < 24; h++) {
       var row = document.createElement('div');
-      row.className = 'hourrow' + (isToday && Math.floor(nb / 2) === h ? ' now' : '');
+      row.className = 'hourrow' + (isToday && Math.floor(nb / PER_HOUR) === h ? ' now' : '');
       var lab = document.createElement('div');
       lab.className = 'hourlab';
       lab.textContent = String(h).padStart(2, '0') + ':00';
       row.appendChild(lab);
-      for (var k = 0; k < 2; k++) {
-        var i = h * 2 + k;
+      row.style.setProperty('--ph', PER_HOUR);
+      for (var k = 0; k < PER_HOUR; k++) {
+        var i = h * PER_HOUR + k;
         var cell = document.createElement('button');
         cell.className = 'cell' + (isToday && i > nb ? ' future' : '');
         cell.dataset.i = i;
-        paintCell(cell, b[i], i);
+        paintCell(cell, i);
         row.appendChild(cell);
       }
       dayGrid.appendChild(row);
     }
     relabel();
+    renderLayerPick();
     renderDayLog();
     renderDaySummary();
     renderTargets('dayTargets', [cursor], 1);
@@ -731,11 +847,22 @@
     document.getElementById('undoBtn').disabled = undoStack.length === 0;
   }
 
-  function paintCell(cell, id, i) {
-    var c = id ? catById(id) : null;
+  function paintCell(cell, i) {
+    var b = blocksFor(cursor, false) || [], g = bgFor(cursor, false) || [];
+    var c = b[i] ? catById(b[i]) : null;
+    var gc = g[i] ? catById(g[i]) : null;
     cell.dataset.filled = c ? '1' : '0';
     cell.style.background = c ? colorOf(c) : '';
-    cell.title = blockTime(i) + '–' + blockTime((i + 1) % BLOCKS) + (c ? ' · ' + c.name : ' · unlogged');
+    if (gc) {
+      cell.dataset.along = '1';
+      cell.style.setProperty('--alongc', colorOf(gc));
+    } else {
+      delete cell.dataset.along;
+      cell.style.removeProperty('--alongc');
+    }
+    cell.title = blockTime(i) + '\u2013' + blockTime((i + 1) % BLOCKS) +
+      (c ? ' \u00b7 ' + c.name : ' \u00b7 unlogged') +
+      (gc ? '  +  ' + gc.name + ' alongside' : '');
   }
 
   // pick whichever ink actually contrasts better against the fill, rather than
@@ -781,7 +908,8 @@
   function renderDayLog() {
     var el = document.getElementById('dayLog');
     var runs = runsFor(cursor);
-    if (!runs.length) {
+    var alongRuns = runsFor(cursor, 'g');
+    if (!runs.length && !alongRuns.length) {
       el.innerHTML = '<p class="note" style="margin:0">Nothing logged on this day yet. ' +
         'Paint some blocks above and each stretch will appear here with a box for what happened in it.</p>';
       return;
@@ -821,6 +949,33 @@
       el.appendChild(row);
     });
 
+    if (alongRuns.length) {
+      var sh = document.createElement('div');
+      sh.className = 'subhead';
+      sh.textContent = 'Alongside';
+      el.appendChild(sh);
+      alongRuns.forEach(function (r) {
+        var c = catById(r.id);
+        if (!c) return;
+        var row = document.createElement('div');
+        row.className = 'logrow along';
+        var t = document.createElement('div');
+        t.className = 't';
+        t.textContent = blockTime(r.start) + '\u2013' + (r.end + 1 >= BLOCKS ? '24:00' : blockTime(r.end + 1));
+        var cc = document.createElement('div');
+        cc.className = 'c';
+        cc.innerHTML = '<i style="background:' + colorOf(c) + '"></i><span>' + c.emoji + ' ' + esc(c.name) + '</span>';
+        var d = document.createElement('div');
+        d.className = 'd';
+        d.textContent = fmtH(r.mins / 60);
+        var sp = document.createElement('div');
+        sp.className = 'note';
+        sp.textContent = 'running in parallel';
+        row.appendChild(t); row.appendChild(cc); row.appendChild(d); row.appendChild(sp);
+        el.appendChild(row);
+      });
+    }
+
     // notes whose blocks were later erased would otherwise be invisible and unreachable
     var n = notesFor(cursor, false) || {};
     var b = blocksFor(cursor, false) || [];
@@ -850,7 +1005,8 @@
     var el = document.getElementById('daySummary');
     var logged = t.logged / 60, un = 24 - logged;
     el.innerHTML = '<b>' + fmtH(logged) + '</b> logged · ' + fmtH(un) + ' blank · ' +
-      fmtH(kindTotal(t.per, 'leak') / 60) + ' leak';
+      fmtH(kindTotal(t.per, 'leak') / 60) + ' leak' +
+      (t.along ? ' · ' + fmtH(t.along / 60) + ' alongside' : '');
   }
 
   // ---- backup age & nudge ----
@@ -918,6 +1074,8 @@
   function fillGap() {
     if (cursor !== todayISO()) { alert('“Fill → now” only applies to today.'); return; }
     if (!paintCat) { alert('Pick a category first — the eraser has nothing to erase here.'); return; }
+    // "unlogged" is a main-layer idea; filling the parallel layer up to now makes no sense
+    if (paintLayer === 'g') { alert('Switch back to Main to fill the gap. The alongside layer has no gaps to fill — it is optional by design.'); return; }
     var b = blocksFor(cursor, true), nb = nowBlock(), start = -1;
     for (var i = nb; i >= 0; i--) { if (b[i]) break; start = i; }
     if (start < 0) { alert('Nothing to fill — you are already logged up to now.'); return; }
@@ -932,18 +1090,18 @@
   function applyTo(cell) {
     if (!cell || !cell.classList.contains('cell')) return;
     var i = +cell.dataset.i;
-    var b = blocksFor(cursor, true);
-    if (b[i] === paintValue) return;
-    b[i] = paintValue;
-    paintCell(cell, b[i], i);
+    var arr = layerArr(true);
+    if (arr[i] === paintValue) return;
+    arr[i] = paintValue;
+    paintCell(cell, i);
   }
   function cellAt(x, y) {
     var el = document.elementFromPoint(x, y);
     return el && el.closest ? el.closest('.cell') : null;
   }
   function pushUndo() {
-    var b = blocksFor(cursor, true);
-    undoStack.push({ day: cursor, b: b.slice() });
+    var b = blocksFor(cursor, true), g = bgFor(cursor, true);
+    undoStack.push({ day: cursor, b: b.slice(), g: g.slice() });
     if (undoStack.length > 40) undoStack.shift();
     document.getElementById('undoBtn').disabled = false;
   }
@@ -956,8 +1114,8 @@
     painting = true;
     paintValue = paintCat || null;
     // clicking a block that already holds the selected category erases it instead
-    var b = blocksFor(cursor, true);
-    if (paintValue && b[+cell.dataset.i] === paintValue) paintValue = null;
+    var arr = layerArr(true);
+    if (paintValue && arr[+cell.dataset.i] === paintValue) paintValue = null;
     applyTo(cell);
     dayGrid.setPointerCapture(e.pointerId);
   });
@@ -981,6 +1139,18 @@
   window.addEventListener('pointerup', endPaint);
 
   /* --- day controls --- */
+  function renderLayerPick() {
+    document.querySelectorAll('#layerPick button').forEach(function (b) {
+      b.setAttribute('aria-pressed', String(b.dataset.l === paintLayer));
+    });
+    document.getElementById('layerHint').textContent = paintLayer === 'g'
+      ? 'Painting the background layer \u2014 something running alongside the main activity. It gets full credit for the same clock time, so totals can pass 24h.'
+      : 'Painting the main activity for each block.';
+  }
+  document.querySelectorAll('#layerPick button').forEach(function (b) {
+    b.onclick = function () { paintLayer = b.dataset.l; renderLayerPick(); };
+  });
+
   document.getElementById('prevDay').onclick = function () { cursor = addDays(cursor, -1); undoStack = []; renderDay(); };
   document.getElementById('nextDay').onclick = function () { if (cursor < todayISO()) { cursor = addDays(cursor, 1); undoStack = []; renderDay(); } };
   document.getElementById('todayBtn').onclick = function () { cursor = todayISO(); undoStack = []; renderDay(); };
@@ -990,21 +1160,23 @@
     if (!u) return;
     state.days[u.day] = state.days[u.day] || {};
     state.days[u.day].b = u.b;
+    state.days[u.day].g = u.g;
     if (u.day !== cursor) cursor = u.day;
     save(); renderDay();
   };
   document.getElementById('clearDay').onclick = function () {
     if (!confirm('Clear every block on ' + fmtDate(cursor) + '?')) return;
     pushUndo();
-    state.days[cursor] = { b: new Array(BLOCKS).fill(null) };
+    state.days[cursor] = { b: new Array(BLOCKS).fill(null), g: new Array(BLOCKS).fill(null), n: {} };
     save(); renderDay();
   };
   document.getElementById('repeatYday').onclick = function () {
-    var y = blocksFor(addDays(cursor, -1), false);
+    var yd = addDays(cursor, -1);
+    var y = blocksFor(yd, false), yg = bgFor(yd, false);
     if (!y || !y.some(Boolean)) { alert('Nothing logged on ' + fmtDate(addDays(cursor, -1)) + '.'); return; }
     if (!confirm('Copy ' + fmtDate(addDays(cursor, -1)) + ' over ' + fmtDate(cursor) + '? This overwrites the day.')) return;
     pushUndo();
-    state.days[cursor] = { b: y.slice() };
+    state.days[cursor] = { b: y.slice(), g: yg ? yg.slice() : new Array(BLOCKS).fill(null) };
     save(); renderDay();
   };
 
@@ -1106,12 +1278,17 @@
     for (var h = 0; h < 24; h++) {
       html += '<div class="hr">' + (h % 3 === 0 ? String(h).padStart(2, '0') : '') + '</div>';
       for (var k = 0; k < 7; k++) {
-        var b = blocksFor(days[k], false);
+        var b = blocksFor(days[k], false), g = bgFor(days[k], false);
         html += '<div class="wcell">';
         for (var s = 0; s < 2; s++) {
-          var id = b ? b[h * 2 + s] : null;
-          html += '<i data-filled="' + (id ? 1 : 0) + '" data-d="' + days[k] + '" data-i="' + (h * 2 + s) + '"' +
-            (id ? ' style="background:' + colorFor(id) + '"' : '') + '></i>';
+          var m0 = h * 60 + s * 30;
+          var id = b ? dominantIn(b, m0, m0 + 30) : null;
+          var gid = g ? dominantIn(g, m0, m0 + 30) : null;
+          var st = [];
+          if (id) st.push('background:' + colorFor(id));
+          if (gid) st.push('box-shadow:inset 0 -3px 0 ' + colorFor(gid));
+          html += '<i data-filled="' + (id ? 1 : 0) + '" data-d="' + days[k] + '" data-i="' + Math.floor(m0 / MIN) + '"' +
+            (st.length ? ' style="' + st.join(';') + '"' : '') + '></i>';
         }
         html += '</div>';
       }
@@ -1133,10 +1310,12 @@
   document.getElementById('weekGrid').addEventListener('pointermove', function (e) {
     var c = e.target.closest ? e.target.closest('[data-d]') : null;
     if (!c) { hideTip(); return; }
-    var b = blocksFor(c.dataset.d, false), i = +c.dataset.i;
+    var b = blocksFor(c.dataset.d, false), g = bgFor(c.dataset.d, false), i = +c.dataset.i;
     var cat = b && b[i] ? catById(b[i]) : null;
+    var gcat = g && g[i] ? catById(g[i]) : null;
     showTip(e, '<b>' + fmtDate(c.dataset.d) + ' ' + blockTime(i) + '</b> · ' +
-      (cat ? cat.emoji + ' ' + esc(cat.name) : '<span style="color:var(--muted)">unlogged</span>'));
+      (cat ? cat.emoji + ' ' + esc(cat.name) : '<span style="color:var(--muted)">unlogged</span>') +
+      (gcat ? '<br><span style="color:var(--text-secondary)">+ ' + gcat.emoji + ' ' + esc(gcat.name) + ' alongside</span>' : ''));
   });
   document.getElementById('weekGrid').addEventListener('pointerleave', hideTip);
   document.getElementById('weekGrid').addEventListener('click', function (e) {
@@ -1181,6 +1360,7 @@
     document.getElementById('insTiles').innerHTML = [
       tile('Leaked', fmtH(leakMin / 60), fmtH(leakMin / 60 / n) + ' a day', leakMin / 60 / n <= leakTargetPerDay() ? 'up' : 'down'),
       tile('Time invested', fmtH(investMin / 60), fmtH(investMin / 60 / n) + ' a day', ''),
+      tile('Alongside', fmtH(t.along / 60), t.along ? 'parallel time, credited to both' : 'nothing logged in parallel', ''),
       tile('Longest focus run', fmtH(bestRun * MIN / 60), bestDay ? 'on ' + fmtDate(bestDay) : 'no invest blocks yet', ''),
       tile('Switches / day', String(Math.round(switches / n)), 'category changes', ''),
       tile('Coverage', Math.round(coverage * 100) + '%', 'of logged days accounted for', coverage >= 0.9 ? 'up' : '')
@@ -1211,7 +1391,8 @@
       var b = blocksFor(d, false);
       if (!b) return;
       for (var i = 0; i < BLOCKS; i++) {
-        if (b[i] && byHour[Math.floor(i / 2)].hasOwnProperty(b[i])) byHour[Math.floor(i / 2)][b[i]] += MIN;
+        var hIdx = Math.floor(i / PER_HOUR);
+        if (b[i] && byHour[hIdx].hasOwnProperty(b[i])) byHour[hIdx][b[i]] += MIN;
       }
     });
     var maxH = 1;
@@ -1292,25 +1473,28 @@
   ];
   function exCat(id) { for (var i = 0; i < EX_CATS.length; i++) if (EX_CATS[i].id === id) return EX_CATS[i]; return null; }
 
-  function fromRanges(ranges) {
+  // ranges are in minutes past midnight, so the example redraws at whatever
+  // resolution the user has chosen
+  function fromMinuteRanges(ranges) {
     var a = new Array(BLOCKS).fill(null);
-    ranges.forEach(function (r) { for (var i = r[0]; i < r[1]; i++) a[i] = r[2]; });
+    ranges.forEach(function (r) {
+      for (var m = r[0]; m < r[1]; m += MIN) a[Math.floor(m / MIN)] = r[2];
+    });
     return a;
   }
-  var EX_WEEKDAY = fromRanges([
-    [0, 14, 'sleep'],    [14, 15, 'admin'],  [15, 17, 'health'], [17, 20, 'deep'],
-    [20, 21, 'rest'],    [21, 24, 'deep'],   [24, 26, 'health'], [26, 28, 'admin'],
-    [28, 31, 'deep'],    [31, 32, 'rest'],   [32, 34, 'korean'], [34, 38, 'health'],
-    [38, 41, 'social'],  [41, 44, 'rest'],   [44, 45, 'drift'],  [45, 46, 'rest'],
-    [46, 48, 'sleep']
-  ]);
-  var EX_WEEKEND = fromRanges([
-    [0, 17, 'sleep'],    [17, 18, 'admin'],  [18, 20, 'health'], [20, 23, 'admin'],
-    [23, 25, 'korean'],  [25, 27, 'health'], [27, 31, 'social'], [31, 34, 'rest'],
-    [34, 38, 'health'],  [38, 42, 'social'], [42, 45, 'rest'],   [45, 46, 'drift'],
-    [46, 48, 'sleep']
-  ]);
-  var EX_WEEK = [EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKEND, EX_WEEKEND];
+  var EX_WEEKDAY_R = [
+    [0, 420, 'sleep'],     [420, 450, 'admin'],   [450, 510, 'health'],  [510, 600, 'deep'],
+    [600, 630, 'rest'],    [630, 720, 'deep'],    [720, 780, 'health'],  [780, 840, 'admin'],
+    [840, 930, 'deep'],    [930, 960, 'rest'],    [960, 1020, 'korean'], [1020, 1140, 'health'],
+    [1140, 1230, 'social'],[1230, 1320, 'rest'],  [1320, 1350, 'drift'], [1350, 1380, 'rest'],
+    [1380, 1440, 'sleep']
+  ];
+  var EX_WEEKEND_R = [
+    [0, 510, 'sleep'],     [510, 540, 'admin'],   [540, 600, 'health'],  [600, 690, 'admin'],
+    [690, 750, 'korean'],  [750, 810, 'health'],  [810, 930, 'social'],  [930, 1020, 'rest'],
+    [1020, 1140, 'health'],[1140, 1260, 'social'],[1260, 1350, 'rest'],  [1350, 1380, 'drift'],
+    [1380, 1440, 'sleep']
+  ];
   var EX_DAYNAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
   function exTotals(arr) {
@@ -1321,6 +1505,10 @@
   }
 
   function renderExample() {
+    var EX_WEEKDAY = fromMinuteRanges(EX_WEEKDAY_R);
+    var EX_WEEKEND = fromMinuteRanges(EX_WEEKEND_R);
+    var EX_WEEK = [EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKDAY, EX_WEEKEND, EX_WEEKEND];
+
     // ---- tiles ----
     var wd = exTotals(EX_WEEKDAY), we = exTotals(EX_WEEKEND);
     function weekly(id) { return (wd[id] * 5 + we[id] * 2) / 60; }
@@ -1347,7 +1535,7 @@
       for (var k = 0; k < 7; k++) {
         html += '<div class="wcell">';
         for (var sIdx = 0; sIdx < 2; sIdx++) {
-          var id = EX_WEEK[k][h * 2 + sIdx];
+          var id = dominantIn(EX_WEEK[k], h * 60 + sIdx * 30, h * 60 + sIdx * 30 + 30);
           var c = id ? exCat(id) : null;
           html += '<i data-filled="' + (c ? 1 : 0) + '"' + (c ? ' style="background:' + colorOf(c) + '"' : '') + '></i>';
         }
@@ -1362,9 +1550,10 @@
     // ---- the weekday, hour by hour ----
     var dh = '';
     for (var hh = 0; hh < 24; hh++) {
-      dh += '<div class="hourrow"><div class="hourlab">' + String(hh).padStart(2, '0') + ':00</div>';
-      for (var kk = 0; kk < 2; kk++) {
-        var bi = hh * 2 + kk, eid = EX_WEEKDAY[bi], ec = eid ? exCat(eid) : null;
+      dh += '<div class="hourrow" style="--ph:' + PER_HOUR + '">' +
+            '<div class="hourlab">' + String(hh).padStart(2, '0') + ':00</div>';
+      for (var kk = 0; kk < PER_HOUR; kk++) {
+        var bi = hh * PER_HOUR + kk, eid = EX_WEEKDAY[bi], ec = eid ? exCat(eid) : null;
         var lab = '';
         if (ec && eid !== EX_WEEKDAY[bi - 1]) {
           lab = '<span class="lab" style="color:' + inkOn(colorOf(ec)) + '">' + ec.emoji + ' ' + esc(ec.name) + '</span>';
@@ -1489,6 +1678,8 @@
         ? '  Past eight, colours get hard to tell apart in the week grid \u2014 lean on the icons and the table view, and keep new hues well apart.'
         : '');
 
+    renderResolution();
+
     try {
       var bytes = new Blob([JSON.stringify(state)]).size;
       var age = backupAge();
@@ -1505,6 +1696,47 @@
     if (j < 0 || j >= state.cats.length) return;
     var t = state.cats[idx]; state.cats[idx] = state.cats[j]; state.cats[j] = t;
     save(); renderAll();
+  }
+
+  function renderResolution() {
+    var el = document.getElementById('resPick');
+    el.innerHTML = '';
+    RESOLUTIONS.forEach(function (m) {
+      var b = document.createElement('button');
+      b.className = 'btn' + (m === MIN ? ' primary' : '');
+      b.textContent = m + ' min';
+      b.onclick = function () { setResolution(m); };
+      el.appendChild(b);
+    });
+    document.getElementById('resNote').textContent = BLOCKS + ' blocks a day, ' + MIN + ' minutes each';
+  }
+
+  function setResolution(newMin) {
+    if (newMin === MIN) return;
+    var coarser = newMin > MIN;
+    var dayCount = Object.keys(state.days).length;
+    var msg = 'Switch to ' + newMin + '-minute blocks (' + (1440 / newMin) + ' a day)?';
+    if (dayCount) {
+      msg += '\n\n' + dayCount + ' logged day' + (dayCount === 1 ? '' : 's') + ' will be rewritten.';
+      msg += coarser
+        ? '\n\nThis is COARSER than your current ' + MIN + ' minutes, so it loses detail: where a new block covers several old ones, only the category holding the most of it survives. Back up first if you are unsure.'
+        : '\n\nThis is finer than your current ' + MIN + ' minutes, so nothing is lost — each block just splits.';
+    }
+    if (!confirm(msg)) return;
+
+    var toLen = 1440 / newMin;
+    Object.keys(state.days).forEach(function (d) {
+      var day = state.days[d];
+      var fromLen = day.b ? day.b.length : 1440 / MIN;
+      if (day.n) day.n = remapNotes(day.n, fromLen, toLen);
+      if (day.b) day.b = resampleArr(day.b, toLen);
+      if (day.g) day.g = resampleArr(day.g, toLen);
+    });
+    state.settings.blockMin = newMin;
+    applyResolution();
+    undoStack = [];   // snapshots are the wrong length now
+    save();
+    renderAll();
   }
 
   document.getElementById('addCat').onclick = function () {
@@ -1552,12 +1784,17 @@
     setTimeout(function () { b.textContent = '\ud83d\udcbe'; }, 1400);
   }
   document.getElementById('expCsv').onclick = function () {
-    var rows = [['date', 'start', 'end', 'category', 'kind', 'minutes', 'memo']];
+    var rows = [['date', 'start', 'end', 'layer', 'category', 'kind', 'minutes', 'memo']];
     Object.keys(state.days).sort().forEach(function (d) {
       runsFor(d).forEach(function (r) {
         var c = catById(r.id);
         rows.push([d, blockTime(r.start), r.end + 1 >= BLOCKS ? '24:00' : blockTime(r.end + 1),
-          c ? c.name : r.id, c ? c.kind : '', r.mins, noteIn(d, r).text]);
+          'main', c ? c.name : r.id, c ? c.kind : '', r.mins, noteIn(d, r).text]);
+      });
+      runsFor(d, 'g').forEach(function (r) {
+        var c = catById(r.id);
+        rows.push([d, blockTime(r.start), r.end + 1 >= BLOCKS ? '24:00' : blockTime(r.end + 1),
+          'alongside', c ? c.name : r.id, c ? c.kind : '', r.mins, '']);
       });
     });
     download('time-tracker-' + todayISO() + '.csv',
@@ -1627,6 +1864,7 @@
     else renderSetup();
   }
 
+  applyResolution();
   renderAll();
 })();
 </script>
