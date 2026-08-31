@@ -1,6 +1,17 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Time Tracker — where the hours actually go</title>
+
+<link rel="icon" type="image/svg+xml" href="icon.svg">
+<link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#f9f9f7" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#0d0d0d" media="(prefers-color-scheme: dark)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Time Tracker">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <script>
   // anti-flash: apply stored theme before first paint
   try {
@@ -61,6 +72,7 @@
   /* ---------- top bar ---------- */
   header {
     position: sticky; top: 0; z-index: 40;
+    padding-top: env(safe-area-inset-top, 0px);
     background: color-mix(in srgb, var(--plane) 88%, transparent);
     backdrop-filter: saturate(1.4) blur(12px);
     border-bottom: 1px solid var(--border);

@@ -139,6 +139,19 @@ anywhere — there is no backend to send it to. Consequences worth knowing:
   (`date, start, end, layer, category, kind, minutes, memo`).
 - Memos can be exported alone as Markdown from the Notes tab.
 
+## On your phone
+
+Open the live URL and use **Add to Home Screen**. It installs with its own icon and opens
+without browser chrome, and works offline after the first load.
+
+The icon is a 24-hour dial: each arc is a category's share of a day, drawn in the app's own
+palette and in its slot order, so neighbouring arcs are the pairs validated as
+distinguishable under colour-vision deficiency. Regenerate the PNGs with
+`python3 tools/make-icons.py` — it rasterises with headless Chrome, so there are no image
+libraries to install.
+
+Remember that a phone and a laptop keep **separate logs**; localStorage does not sync.
+
 ## Running it
 
 Open `index.html`. That's the whole procedure. No `npm install`, no server.
